@@ -42,7 +42,7 @@ pub struct Scene {
     pub primitives: Vec<Primitive>,
 }
 impl Scene {
-    fn rect(&mut self, x: u32, y: u32, w: u32, h: u32, fill: impl Into<String>) {
+    pub(crate) fn rect(&mut self, x: u32, y: u32, w: u32, h: u32, fill: impl Into<String>) {
         self.primitives.push(Primitive::Rect {
             x,
             y,
@@ -51,7 +51,7 @@ impl Scene {
             fill: fill.into(),
         });
     }
-    fn text(&mut self, x: u32, y: u32, value: impl Into<String>, color: &'static str) {
+    pub(crate) fn text(&mut self, x: u32, y: u32, value: impl Into<String>, color: &'static str) {
         self.primitives.push(Primitive::Text {
             x,
             y,
@@ -68,7 +68,7 @@ impl Scene {
             color,
         });
     }
-    fn panel(&mut self, x: u32, y: u32, w: u32, h: u32, title: &str) {
+    pub(crate) fn panel(&mut self, x: u32, y: u32, w: u32, h: u32, title: &str) {
         self.rect(x, y, w, h, EDGE);
         self.rect(x + 1, y + 1, w - 2, h - 2, PANEL);
         self.text(x + 12, y + 8, title, DIM);
@@ -424,8 +424,7 @@ fn stage(s: &mut Scene, d: &Surface) {
     s.rect(60, 168, 1092, 348, "#121d27");
     s.text(480, 456, "BAND / AUDIENCE BELOW", DIM);
     for f in &d.confirmed.fixtures {
-        let x = 60 + u32::from(f.position.0);
-        let y = 156 + u32::from(f.position.1) * 3 / 5;
+        let (x, y, _, _) = fixture_rect(f);
         let r = &d.confirmed.resolved[&(f.id, Attribute::Intensity)];
         s.rect(
             x,
@@ -941,4 +940,28 @@ pub fn ppm(scene: &Scene) -> Vec<u8> {
     let mut out = format!("P6\n{WIDTH} {HEIGHT}\n255\n").into_bytes();
     out.extend(pixels);
     out
+}
+
+/// Shared logical stage geometry for rendering and headless hit selection.
+pub fn fixture_rect(f: &crate::model::Fixture) -> (u32, u32, u32, u32) {
+    (
+        60 + u32::from(f.position.0),
+        156 + u32::from(f.position.1) * 3 / 5,
+        204,
+        64,
+    )
+}
+pub fn hit_fixture(d: &Surface, x: u32, y: u32) -> Option<crate::model::FixtureId> {
+    if d.page != Page::Stage {
+        return None;
+    }
+    d.confirmed
+        .fixtures
+        .iter()
+        .rev()
+        .find(|f| {
+            let (left, top, width, height) = fixture_rect(f);
+            x >= left && y >= top && x - left < width && y - top < height
+        })
+        .map(|f| f.id)
 }

@@ -3,21 +3,35 @@ use shr_lightdesk::{
     model::*,
     render,
     simulator::Simulator,
-    surface::*,
+    surface::{
+        actions::{Action, Draft},
+        *,
+    },
 };
 use std::{
     io::{self, BufRead, Write},
     path::Path,
 };
 
-const HELP: &str = r#"SHR LIGHTDESK - OFFLINE SIMULATION; no devices, sockets or physical output
+const HELP: &str = r#"SHR LIGHTDESK - HEADLESS / explicit Simulator or read-only Lux; no automatic connection
 simulate [preview.svg]       line-oriented keyboard loop; optional live SVG file
 gallery DIRECTORY           seven full-HD state-driven SVG drafts and index.html
+--provider lux --snapshot-file PATH --show-id UUID --epoch DECIMAL
+--provider lux --socket-path PRIVATE_PATH --show-id UUID --epoch DECIMAL
+                            explicit read-only real Lux; no commands or auto-connect
+lux-control --socket-path PRIVATE_PATH --show-id UUID --epoch DECIMAL [--script PATH]
+                            explicit real writable Lux; grant then operator commands
+native --socket-path PRIVATE_PATH --show-id UUID --epoch DECIMAL (optional native feature)
+offscreen --socket-path PRIVATE_PATH --show-id UUID --epoch DECIMAL --script PATH --output DIRECTORY
+                            real Lux actions and scene raster; no display/adapter opening
 --help / --version
 
 Loop (values use percent or degrees; decimals accepted):
   select ID... | group ID | deselect | multi on|off | layer fixtures|groups
   page stage|programmer|library|playbacks|automation|patch|health
+  edit ATTR | text VALUE | backspace | confirm | cancel | back
+  record cue|palette          detached destination draft (text ID, then confirm)
+  focus next|previous|select|lost | attribute next|previous
   set INT|RED|GREEN|BLUE|PAN|TILT|ZOOM VALUE
   cue record ID | cue update ID | go ID SLOT | off SLOT | playback SLOT PERCENT
   palette record ID | palette update ID | palette recall ID
@@ -27,7 +41,7 @@ Loop (values use percent or degrees; decimals accepted):
   mode manual|assist|auto      freeze current look; does not release holds
   grant ATTR LOW HIGH         selected targets; grant alone changes no look
   propose ID ATTR VALUE | accept ATTR (ASSIST only)
-  master PERCENT | blackout on|off (latched, explicit release)
+  master PERCENT | blackout on|off (off opens reveal confirmation; confirm required)
   pad 1..8 | key MIDI_NOTE     inject semantic press; not hardware I/O
   midi light-sim STATUS DATA1 DATA2   complete decimal MIDI bytes; other identity ignored
   encoder 1..16 absolute|twos|offset|signed | fine on|off
@@ -59,6 +73,12 @@ impl App {
         }
         Ok(())
     }
+    fn action(&mut self, action: Action) -> Result<(), String> {
+        if let Some(command) = self.desk.action(action)? {
+            self.send(command)?;
+        }
+        Ok(())
+    }
     fn status(&self) -> String {
         let d = &self.desk;
         let mut out = format!(
@@ -76,6 +96,34 @@ impl App {
                     r.source,
                     t.1.display(r.final_value)
                 ));
+            }
+        }
+        out.push_str(&format!(
+            "Focus selection {} / attribute {} / draft {:?}\n",
+            d.selection_focus,
+            Attribute::ALL[d.attribute_focus].name(),
+            d.modal
+        ));
+        if d.modal
+            .as_ref()
+            .is_some_and(|m| matches!(m.draft, Draft::BlackoutOff))
+        {
+            out.push_str(
+                "BLACKOUT OFF REVIEW / reveals authority-held intensity / SIMULATOR ONLY\n",
+            );
+            out.push_str(&format!(
+                "Confirmed lighting master {}% / physical UNKNOWN\n",
+                f64::from(d.confirmed.master) / 10.0
+            ));
+            for (target, resolved) in &d.confirmed.resolved {
+                if target.1 == Attribute::Intensity {
+                    out.push_str(&format!(
+                        "F{} pre-master {} / source {:?}\n",
+                        target.0,
+                        target.1.display(resolved.value),
+                        resolved.source
+                    ));
+                }
             }
         }
         if let Some(p) = &d.preview {
@@ -114,11 +162,11 @@ impl App {
             }
             ["select", ids @ ..] if !ids.is_empty() => {
                 let ids: Result<Vec<u16>, _> = ids.iter().map(|s| s.parse()).collect();
-                self.desk.select(&ids.map_err(|_| "invalid fixture ID")?)?;
+                self.action(Action::Select(ids.map_err(|_| "invalid fixture ID")?))?;
                 None
             }
             ["group", id] => {
-                let id = num(id)?;
+                let id: u16 = num(id)?;
                 let members = self
                     .desk
                     .confirmed
@@ -128,45 +176,90 @@ impl App {
                     .ok_or("unknown group")?
                     .members
                     .clone();
-                self.desk.select(&members)?;
+                self.action(Action::Select(members))?;
                 None
             }
             ["deselect"] => {
-                self.desk.deselect();
+                self.action(Action::Deselect)?;
                 None
             }
             ["multi", v] => {
-                self.desk.additive = on(v)?;
-                self.desk.context();
+                self.action(Action::Multi(on(v)?))?;
                 None
             }
             ["layer", v] => {
-                self.desk.layer = match *v {
+                let layer = match *v {
                     "fixtures" => Layer::Fixtures,
                     "groups" => Layer::Groups,
                     _ => return Err("layer must be fixtures or groups".into()),
                 };
-                self.desk.context();
+                self.action(Action::Layer(layer))?;
                 None
             }
             ["page", p] => {
-                self.desk.page = Page::parse(p).ok_or("unknown page")?;
-                self.desk.context();
+                self.action(Action::Page(Page::parse(p).ok_or("unknown page")?))?;
                 None
             }
-            ["set", a, v] => Some(Command::Set {
-                targets: self.desk.targets(attr(a)?),
-                value: value(v)?,
-            }),
-            ["clear", "hold"] => Some(Command::ClearToHold),
+            ["edit", a] => {
+                self.action(Action::Edit(attr(a)?))?;
+                None
+            }
+            ["text", v] => {
+                self.action(Action::Text((*v).into()))?;
+                None
+            }
+            ["backspace"] => {
+                self.action(Action::Backspace)?;
+                None
+            }
+            ["focus", "next"] => {
+                self.action(Action::Navigate(1))?;
+                None
+            }
+            ["focus", "previous"] => {
+                self.action(Action::Navigate(-1))?;
+                None
+            }
+            ["attribute", "next"] => {
+                self.action(Action::Attribute(1))?;
+                None
+            }
+            ["attribute", "previous"] => {
+                self.action(Action::Attribute(-1))?;
+                None
+            }
+            ["focus", "select"] => {
+                self.input(Input::Key(self.desk.selection_focus))?;
+                None
+            }
+            ["record", kind] if matches!(*kind, "cue" | "palette") => {
+                self.action(Action::Record {
+                    id: 1,
+                    palette: *kind == "palette",
+                    replace: false,
+                })?;
+                None
+            }
+            ["set", a, v] => {
+                self.action(Action::Edit(attr(a)?))?;
+                self.action(Action::Text((*v).into()))?;
+                self.action(Action::Confirm)?;
+                None
+            }
+            ["clear", "hold"] => {
+                self.action(Action::ClearHold)?;
+                None
+            }
             [kind, op, id]
                 if matches!(*kind, "cue" | "palette") && matches!(*op, "record" | "update") =>
             {
-                Some(Command::Record {
+                self.action(Action::Record {
                     id: num(id)?,
                     palette: *kind == "palette",
                     replace: *op == "update",
-                })
+                })?;
+                self.action(Action::Confirm)?;
+                None
             }
             ["palette", "recall", id] => Some(Command::RecallPalette {
                 id: num(id)?,
@@ -184,7 +277,10 @@ impl App {
                 value: value(v)?,
             }),
             ["master", v] => Some(Command::Master(value(v)?)),
-            ["blackout", v] => Some(Command::Blackout(on(v)?)),
+            ["blackout", v] => {
+                self.action(Action::Blackout(on(v)?))?;
+                None
+            }
             ["mode", m] => Some(Command::Mode(match *m {
                 "manual" => Mode::Manual,
                 "assist" => Mode::Assist,
@@ -204,11 +300,20 @@ impl App {
                 print!("{}", self.status());
                 None
             }
-            ["confirm"] => Some(self.desk.confirm_release()?),
+            ["confirm"] => {
+                self.action(Action::Confirm)?;
+                None
+            }
             ["cancel"] => {
-                self.desk.preview = None;
-                self.desk.menu = false;
-                self.desk.notice = "Cancelled; state retained".into();
+                self.action(Action::Cancel)?;
+                None
+            }
+            ["back"] => {
+                self.action(Action::Back)?;
+                None
+            }
+            ["focus", "lost"] => {
+                self.action(Action::ContextLost)?;
                 None
             }
             ["grant", a, l, h] => Some(Command::Grant {
@@ -399,6 +504,106 @@ fn gallery(path: &Path) -> Result<(), String> {
 fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args().skip(1).collect();
     match args.as_slice() {
+        #[cfg(target_os = "linux")]
+        [
+            command,
+            socket_arg,
+            path,
+            show_arg,
+            show,
+            epoch_arg,
+            epoch,
+            rest @ ..,
+        ] if (command == "native" || command == "offscreen")
+            && socket_arg == "--socket-path"
+            && show_arg == "--show-id"
+            && epoch_arg == "--epoch" =>
+        {
+            let epoch = shr_lightdesk::codec::counter(&serde_json::Value::String(epoch.clone()))?;
+            if command == "offscreen" {
+                match rest {
+                    [script_arg, script, out_arg, out, role_args @ ..]
+                        if script_arg == "--script" && out_arg == "--output" =>
+                    {
+                        shr_lightdesk::frontend::offscreen(
+                            Path::new(path),
+                            show,
+                            epoch,
+                            Path::new(script),
+                            Path::new(out),
+                            shr_lightdesk::frontend::role_args(role_args)?,
+                        )?
+                    }
+                    _ => return Err("offscreen requires --script PATH --output DIRECTORY".into()),
+                }
+            } else {
+                let role = shr_lightdesk::frontend::role_args(rest)?;
+                #[cfg(feature = "native")]
+                shr_lightdesk::native::run(path.into(), show.clone(), epoch, role)?;
+                #[cfg(not(feature = "native"))]
+                let _ = role;
+                #[cfg(not(feature = "native"))]
+                return Err(
+                    "native frontend requires --features native; offscreen remains device-free"
+                        .into(),
+                );
+            }
+        }
+        #[cfg(target_os = "linux")]
+        [
+            command,
+            socket_arg,
+            path,
+            show_arg,
+            show,
+            epoch_arg,
+            epoch,
+            rest @ ..,
+        ] if command == "lux-control"
+            && socket_arg == "--socket-path"
+            && show_arg == "--show-id"
+            && epoch_arg == "--epoch" =>
+        {
+            let script = match rest {
+                [] => None,
+                [flag, path] if flag == "--script" => Some(Path::new(path)),
+                _ => return Err("lux-control optional --script PATH".into()),
+            };
+            let epoch = shr_lightdesk::codec::counter(&serde_json::Value::String(epoch.clone()))?;
+            shr_lightdesk::lux_operator::run(Path::new(path), show, epoch, script)?;
+        }
+        [
+            provider,
+            name,
+            input,
+            path,
+            show_arg,
+            show,
+            epoch_arg,
+            epoch,
+        ] if provider == "--provider"
+            && name == "lux"
+            && show_arg == "--show-id"
+            && epoch_arg == "--epoch" =>
+        {
+            let epoch = shr_lightdesk::codec::counter(&serde_json::Value::String(epoch.clone()))?;
+            let output = match input.as_str() {
+                "--snapshot-file" => {
+                    shr_lightdesk::adapter::snapshot_file(Path::new(path), show, epoch)?
+                }
+                #[cfg(target_os = "linux")]
+                "--socket-path" => {
+                    shr_lightdesk::adapter::snapshot_socket(Path::new(path), show, epoch)?
+                }
+                _ => {
+                    return Err(
+                        "provider requires --snapshot-file or explicit private --socket-path"
+                            .into(),
+                    );
+                }
+            };
+            print!("{output}");
+        }
         [v] if v == "--version" => println!("shr-lightdesk 0.1.0 / offline"),
         [] => println!("{HELP}"),
         [v] if v == "--help" => println!("{HELP}"),

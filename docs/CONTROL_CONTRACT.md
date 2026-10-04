@@ -185,3 +185,22 @@ look, cancel expired transient effects and require operator rearm. Recover from
 known current state with an engine-controlled transition. Never replay a buffered
 strobe/flash or yesterday's programmer. Physical confirmation is separate from a
 successful reconnect. Lux owns and tests this path; Lightdesk displays it.
+
+## Coordinated implementation baseline — 2026-10-04
+
+The [GP-2026-10-04.1 contract decisions](../../gigpies/docs/MODULE_CONTRACTS.md)
+now fix the first implementation subset, examples, bounds and unresolved gates.
+They supersede undecided integration choices in this earlier proposal for that
+subset; the simulator remains in-process scaffolding with the limits above.
+See [the task plan](GIGPIES_IMPLEMENTATION.md) for provider replacement gates.
+
+Task0008 LD03 adds a real **read-only** C-LIGHT:1 consumer, separate from the
+Simulator Authority seam. Strict bounded frames and complete page/schema/patch/
+capability/source validation precede trusted state; failures retain the previous
+complete snapshot. Stable IDs and declared ranges are presented without computing
+arbitration, release destinations, lighting output or authority grants. Explicit
+file/private-UDS CLI selection is required. LX03 is volatile/null-disarmed and
+physical unknown; native display, command writes, timed release and durable restart
+await later reviewed providers/gates. Pinned codec dependencies do not import Lux
+source or lighting algorithms. See tests/fixtures/lx03/PROVENANCE.json for exact
+accepted producer source/data identities.

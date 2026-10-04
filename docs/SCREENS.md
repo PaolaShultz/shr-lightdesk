@@ -1,9 +1,13 @@
 # Screens, drafts and operating workflow
 
 2026-10-04. Native graphical application with a dense TUI appearance is the target.
-Today's implemented backend writes state-driven SVG/PPM drafts; the interaction
-loop is ordinary line input. There is no native window, mouse dependency, active
-HDMI session or physical stage preview. [Generate the gallery](DEVELOPMENT.md).
+The original simulator backend writes state-driven SVG/PPM drafts with ordinary
+line input. Task0009 adds an optional native winit/wgpu frontend and explicit
+real-provider worker offscreen mode over the same font/primitives. Its semantic
+workflow, exact review paging and validation state are in [Status](STATUS.md) and
+[Development](DEVELOPMENT.md). No actual operator window/HDMI session or physical
+stage preview was opened during software acceptance. The dated screen drafts
+below remain design evidence. [Generate the gallery](DEVELOPMENT.md).
 
 ## Full-HD frame and visual grammar
 
@@ -161,3 +165,30 @@ The simulated control map is in [CONTROLLER.md](CONTROLLER.md). In the loop,
 opened. Use `encoder 1 twos` then value 1 or 127 for relative steps, after choosing
 a supported uniform selection. The gallery is reproducible original artwork,
 not an image of a running commercial console or future physical installation.
+
+### Task0009 native material review
+
+The real provider surface shows percentages and degrees from the advertised Lux
+units/ranges. Programmer, Hold, playing source, engine current and final intent
+remain separate; absent values say `none`, and physical output stays unknown.
+Library/playback pages name stored masks; Health retains protocol details.
+Attribute drafts label percent, coherent RGB percentages or position/zoom degrees.
+
+Protected review presents show/scope/epoch/revision/patch, expiry, every material
+target and its units, applicable bounds, overwrite identities and engine release
+transition duration. Private nonce/lease/token metadata stays internal. Material
+lines freeze with the confirmation context; scroll coverage counts only successful
+presentations of those exact lines. Commands still submit the original Lux token.
+Page counts and complete offscreen review exports make long reviews inspectable.
+Long operator notices remain available through the scrolling main pane.
+
+Record copies only the engine programmer mask. Update extends that mask into the
+existing stored look: review names changed old-to-requested programmer values and
+untouched retained values. Hold and resolved values are not implied to be stored.
+GO reviews the requested cue plus the complete replaced playback target union,
+including removed targets, existing stored values and current contributions. The
+engine's current value/provenance is shown separately from the requested cue value;
+masked/effective results await Lux resolution. Master/blackout similarly review the
+old and requested global control plus affected intensity scope without calculating
+output locally. Parsed native console mutations use this same full-review path;
+the separately accepted headless CLI retains its immediate command behavior.

@@ -1,0 +1,8 @@
+{
+  "accepted": true,
+  "reviewer": "root + independent Lux reviewer",
+  "utc": "2026-10-04T14:13:01.499973+00:00",
+  "scope": "LX03 exact R2 code/data/private synthetic service accepted for substantive LD03.72normal+Clippy+release passed; fourreviewgapsfixed. No LX04 timing/persistence yet.",
+  "instructions": "Start LD03 now, verifyallprovfiles. Rootassigns P4-B nextPi4buildturn: P4-Apass2exit0 at14:00:28 and allbuildchecksfinished; inspectprocesses thenflock. Implementread-onlyprovideradapter/CLI. Optional explicitprivateUDSread-onlyconnection test using accepted bin/lux-service nowauthorized and useful; sameUIDprivate0700 paths, no productionendpoint, stopownchild/cleanup. Keep executableprivate, NEVERcopybinarytoGit. SourcecorpusrootPROVhashes normative fortransfer; originalproviderPROVENANCE renamed PROVIDER_PROVENANCE to preservebytes.",
+  "executable_sha256": "7af00a972905a1cc37ef581478d2843024ede8263d45da3c578d2d6310b9ca95"
+}

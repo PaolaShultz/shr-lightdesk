@@ -7,8 +7,10 @@ pub enum EncoderMode {
     BinaryOffset,
     SignedBit,
 }
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Input {
+    /// Abstract controller event; no device/profile binding is implied.
+    Action(crate::surface::actions::Action),
     Key(usize),
     Pad(usize),
     Rotary(usize, u8),
@@ -182,10 +184,12 @@ impl Controller {
         None
     }
     pub fn value(&mut self, index: usize, raw: u8, current: i32, range: (i32, i32)) -> Option<i32> {
-        if index >= 16 || raw > 127 {
+        if index >= 16 || raw > 127 || range.0 >= range.1 || !(range.0..=range.1).contains(&current)
+        {
             return None;
         }
-        let (lo, hi) = range;
+        let (lo, hi) = (i64::from(range.0), i64::from(range.1));
+        let current = i64::from(current);
         match self.profile.modes[index] {
             EncoderMode::Absolute => {
                 let target = ((current - lo) * 127 / (hi - lo)).clamp(0, 127) as u8;
@@ -194,14 +198,14 @@ impl Controller {
                     return None;
                 }
                 if self.fine {
-                    previous.map(|p| (current + i32::from(raw) - i32::from(p)).clamp(lo, hi))
+                    previous.map(|p| (current + i64::from(raw) - i64::from(p)).clamp(lo, hi) as i32)
                 } else {
-                    Some(lo + i32::from(raw) * (hi - lo) / 127)
+                    Some((lo + i64::from(raw) * (hi - lo) / 127) as i32)
                 }
             }
-            mode => relative(mode, raw)
-                .filter(|v| *v != 0)
-                .map(|d| (current + d * if self.fine { 1 } else { 10 }).clamp(lo, hi)),
+            mode => relative(mode, raw).filter(|v| *v != 0).map(|d| {
+                (current + i64::from(d) * if self.fine { 1 } else { 10 }).clamp(lo, hi) as i32
+            }),
         }
     }
 }

@@ -1,0 +1,7 @@
+{
+  "accepted": true,
+  "utc": "2026-10-04T14:57:47.860561+00:00",
+  "scope": "shr-lux LX04 timed/durable DATA",
+  "provenance_sha256": "1d463a804a165f35521afb0ad2738b5ba427f4bedd983b00cdd316bc8c419d88",
+  "next": "LD04 exactschema/data implementation authorized. Actualacceptedprivatebinaryintegration stillrequired; rootdelivers artifactsoon."
+}

@@ -1,0 +1,12 @@
+{
+  "contract": "C-SHOW:1 / C-ROLE:1",
+  "provider": "GigPies GP-01",
+  "base": "99eb0f08050a9a86039af9f1ba2a3541649ca7b6",
+  "contract_sha256": "54a887f4a300d049d3ba67077a2e0446f7a92c57c41cef9d3b7da13735a092ac",
+  "files": {
+    "README.md": "0e7d001fe574a6c79bd16e4c6c4e9f5dd69bf2575a7f67596d3332af59426f76",
+    "e01.json": "5817a494339b4591077ab62312e25d4f1cb6826f2fcd7f9cca8f99a0a9175656",
+    "e02.json": "055c8d501cde17fcc168fd83071f53c6f731d32f0554bdc4846de056f75a4f5b"
+  },
+  "acceptance": "Root inspected GP-01 core; task0007 normal suite passed. Optional-module fix source accepted in task0008/R1, final rerun pending. E01/E02 bytes unchanged; approved as headless role/show example data only."
+}

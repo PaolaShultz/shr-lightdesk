@@ -1,0 +1,19 @@
+{
+  "state": "accepted-read-only-wire-data-and-actual-provider-release",
+  "schema": "lx05-v1",
+  "files": {
+    "WIRE.md": "33e93eb0ca6b060f1d4dba155cd6190e9673c1bb8479a7409849e4e3488816fe",
+    "commands.json": "3f9adf969a64e3b8d964974113a64017cc11e73afa5401e7254f9fe61b9f7d31",
+    "features.json": "c90fbb7665e2f395ee8a5c829888e99e88f462355de7b35a1d289a9b26e94f1f"
+  },
+  "reviewer": "baseline_lux_review Sol6.1 low",
+  "limits": [
+    "Read-only analysis consumer; no calibration/grant writable UI",
+    "Actual timed, durable and untimed interoperability validated; physical unknown"
+  ],
+  "semantics": "Gate opt-in schema; existing strict bounded C-LIGHT framed/pages/identity/counter/nullable constraints remain. AUTO retained contribution provenance independent of current reconnected source. Legacy LX01..04 remains compatible. Source attributes auto optional only lx05; no client arbitration. Actual owner Service-generated commands/features; no source algorithms copied.",
+  "utc": "2026-10-04T17:38:49.522101+00:00",
+  "provider_repository": "https://github.com/PaolaShultz/shr-lux",
+  "provider_commit": "515ac001dad6e1fe530b76f4c5b12f8d82f4c6e8",
+  "runtime_sha256": "53b56b3b649da46c02206ea6559de851e1071ce4d81f8f2488d5a64f6b0a8b76"
+}

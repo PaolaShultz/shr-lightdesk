@@ -1,0 +1,21 @@
+{
+  "task": "0008",
+  "provider": "shr-lux LX04 timed/durable DATA",
+  "baseline": "ba4ccd92656e6d2a3cbc6424cdc2a017d3e4f14d",
+  "utc": "2026-10-04T14:57:47.860561+00:00",
+  "contract": "GP-2026-10-04.1/C-LIGHT:1",
+  "source_checkpoint_sha256": "978a0e1825001d443e6fa2413f78108ab39a2b56a0afbbe2ce50a5d0daafc5c2",
+  "data_checkpoint_sha256": "cc368464734b80f9e16415247e63120f57f80ea7fb710bcf970c4884314f1cf7",
+  "files": {
+    "PROVIDER_PROVENANCE.json": "83984ce5e3289f8fb7ac40fe90174b331cc34cce7e37041e3f84a8484bb48fb9",
+    "README.md": "c6ef410d06de4b18638f7d533172e760ee4596aae1d182617c0aaf798a33dfd1",
+    "SHA256SUMS": "544c1780c5e172e8f27efc5f0f7b80adad833b47b491c14ea023479b9403b425",
+    "WIRE.md": "3af7e6e35b51d355cd0a14e5faf6af76dec6f54207f64f0c3e38d86f735695bd",
+    "durable-commands.json": "919f76e861e0fb26752ec856324e8cc54b521b83fca7bb52de478147762d0d2e",
+    "recovery.json": "a6b2b6f7c1ffb24ea5f7f5b34b7ba94e7bb73f0b7d6b55936326f6d571311faf",
+    "timing.json": "104dbe5f3f859b7ffdc721e5bd65d2ebe16b6268870b51384288eba015f08b2b"
+  },
+  "validation": "Independent+root exactdata/producerhashes/semantics accepted;89normalpassed0fail0ignored. Finalbinaryrelease/PTYevidence beingreviewed separately; executable follows.",
+  "limits": "Real timednull/disarmed authority and privatecheckpoint recovery; no physicaloutput/native/controlhardware/load. Data generated fromactualService requests/replies, randomnonce normalizedonlyfor testcomparisons.",
+  "original_provenance": "Original PROVENANCE.json renamed PROVIDER_PROVENANCE.json; originalSHA256SUMS entryPROVENANCE refers thosepreservedbytes. Rootmanifestfiles normativefor transferrednames."
+}

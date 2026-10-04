@@ -177,3 +177,14 @@ prove encodings and LED protocol independently, test identical-device assignment
 replug/port swap, focus changes, lost release and simultaneous operation. Observe
 that lighting notes/LEDs never reach audio or an instrument. This task did none
 of those operations; no automatic device probe or mapping installation is present.
+
+
+Task0009 native software supplies semantic fixture/attribute focus, detached
+edit/record/GO drafts and reviewed Hold/release/mode/blackout. Keyboard and injected
+Semantic actions share the Lux workflow; physical MIDI translation/profile mapping
+remains GP-H2. The exact accepted GP09 broker verifies explicit injected descriptor
+bindings and private process-held ownership. Lightdesk only consumes its protocol;
+it does not enumerate hardware or implement another registry. A separate latest
+LED mailbox is generation/binding fenced and carries desired semantic states only.
+No LED MIDI encoder/output is opened. Role loss discards queued input and disables
+new Lux sends/retries; reacquisition is explicit with a new accepted request/process.

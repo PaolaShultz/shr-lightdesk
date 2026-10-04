@@ -1,7 +1,10 @@
+#[path = "actions.rs"]
+pub mod actions;
 use crate::{
     controller::{Controller, Input},
     model::*,
 };
+use actions::{Action, Draft, Modal, PadAction, typed_value};
 use std::collections::BTreeSet;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -75,6 +78,9 @@ pub struct Surface {
     pub controller: Controller,
     pub menu: bool,
     pub notice: String,
+    pub modal: Option<Modal>,
+    pub selection_focus: usize,
+    pub attribute_focus: usize,
     next_id: u64,
 }
 impl Surface {
@@ -92,6 +98,9 @@ impl Surface {
             controller: Controller::default(),
             menu: false,
             notice: "OFFLINE ONLY / no physical output".into(),
+            modal: None,
+            selection_focus: 0,
+            attribute_focus: 0,
             next_id: 1,
         }
     }
@@ -122,8 +131,48 @@ impl Surface {
         self.selected.clear();
         self.context();
     }
+    pub fn pad_action(&self, index: usize) -> PadAction {
+        use PadAction::*;
+        let pads = if self.modal.is_some() || self.preview.is_some() {
+            [
+                Navigate(-1),
+                Navigate(1),
+                Unavailable,
+                Unavailable,
+                Unavailable,
+                Backspace,
+                Confirm,
+                Cancel,
+            ]
+        } else if self.menu {
+            [
+                Record,
+                ClearHold,
+                ReleasePlayback,
+                Edit,
+                Blackout,
+                Page(crate::surface::Page::Health),
+                Confirm,
+                Back,
+            ]
+        } else {
+            [
+                Page(crate::surface::Page::Stage),
+                Page(crate::surface::Page::Programmer),
+                Page(crate::surface::Page::Playbacks),
+                Page(crate::surface::Page::Library),
+                Multi,
+                Deselect,
+                Menu,
+                Back,
+            ]
+        };
+        pads.get(index).copied().unwrap_or(Unavailable)
+    }
     pub fn context(&mut self) {
+        self.menu = false;
         self.preview = None;
+        self.modal = None;
         self.controller.context_changed();
     }
     pub fn queue(&mut self, command: Command) -> Result<Request, String> {
@@ -144,6 +193,7 @@ impl Surface {
         self.pending = Some(r.clone());
         self.result = ResultState::Pending(r.id);
         self.preview = None;
+        self.modal = None;
         Ok(r)
     }
     pub fn acknowledge(&mut self, reply: Reply) {
@@ -177,6 +227,8 @@ impl Surface {
         self.context();
     }
     pub fn disconnect(&mut self) {
+        self.context();
+        self.menu = false;
         self.connected = false;
         self.pending = None;
         self.preview = None;
@@ -185,6 +237,8 @@ impl Surface {
         self.controller.disconnected();
     }
     pub fn reconnect(&mut self, s: Snapshot) {
+        self.context();
+        self.menu = false;
         self.confirmed = s;
         self.connected = true;
         self.pending = None;
@@ -204,6 +258,7 @@ impl Surface {
         if !self.connected || self.pending.is_some() {
             return Err("fresh idle connection required".into());
         }
+        self.modal = None;
         let targets = self.targets(a);
         let after = authority.preview_release(targets.clone(), destination)?;
         if after.epoch != self.confirmed.epoch
@@ -231,6 +286,234 @@ impl Surface {
             destination: p.destination,
         })
     }
+    /// Both keyboard and synthetic controller operations enter here.
+    pub fn action(&mut self, action: Action) -> Result<Option<Command>, String> {
+        match action {
+            Action::Page(page) => {
+                self.page = page;
+                self.menu = false;
+                self.context();
+            }
+            Action::Select(ids) => self.select(&ids)?,
+            Action::Deselect => self.deselect(),
+            Action::Layer(layer) => {
+                self.layer = layer;
+                self.selection_focus = 0;
+                self.context();
+            }
+            Action::Multi(value) => {
+                self.additive = value;
+                self.context();
+            }
+            Action::Attribute(delta) => {
+                self.attribute_focus =
+                    (self.attribute_focus as i64 + i64::from(delta)).rem_euclid(7) as usize;
+                self.context();
+            }
+            Action::Navigate(delta) => {
+                self.controller.context_changed();
+                if let Some(Modal {
+                    draft: Draft::Record { text, .. },
+                    ..
+                }) = &mut self.modal
+                {
+                    let id = text.parse::<i32>().unwrap_or(1);
+                    *text = id.saturating_add(delta).clamp(1, 32).to_string();
+                } else if let Some(Modal {
+                    draft: Draft::Attribute { attribute, text },
+                    ..
+                }) = &mut self.modal
+                {
+                    let (low, high) = attribute.range();
+                    let value = typed_value(text)
+                        .unwrap_or(low)
+                        .saturating_add(delta)
+                        .clamp(low, high);
+                    *text = format!(
+                        "{}{}.{:01}",
+                        if value < 0 { "-" } else { "" },
+                        value.abs() / 10,
+                        value.abs() % 10
+                    );
+                } else if self.modal.is_some() || self.preview.is_some() {
+                    return Err("confirmation has no navigation field".into());
+                } else {
+                    let count = match self.layer {
+                        Layer::Fixtures => self.confirmed.fixtures.len(),
+                        Layer::Groups => self.confirmed.groups.len(),
+                    };
+                    if count > 0 {
+                        self.selection_focus = (self.selection_focus as i64 + i64::from(delta))
+                            .rem_euclid(count as i64)
+                            as usize;
+                    }
+                    self.context();
+                }
+            }
+            Action::Edit(attribute) => {
+                self.idle()?;
+                let targets = self.targets(attribute);
+                if targets.is_empty() || targets.iter().any(|t| !self.confirmed.supported(*t)) {
+                    return Err("attribute unavailable for complete selection".into());
+                }
+                self.begin(Draft::Attribute {
+                    attribute,
+                    text: String::new(),
+                });
+            }
+            Action::Record {
+                palette,
+                replace,
+                id,
+            } => {
+                self.idle()?;
+                self.begin(Draft::Record {
+                    palette,
+                    replace,
+                    text: id.to_string(),
+                });
+            }
+            Action::Text(value) => {
+                self.controller.context_changed();
+                if value.len() > 16 {
+                    return Err("draft text too long".into());
+                }
+                match &mut self.modal.as_mut().ok_or("no typed editor")?.draft {
+                    Draft::Attribute { text, .. } | Draft::Record { text, .. } => *text = value,
+                    Draft::BlackoutOff => {
+                        return Err("blackout confirmation has no text field".into());
+                    }
+                }
+            }
+            Action::Backspace => match &mut self.modal.as_mut().ok_or("no typed editor")?.draft {
+                Draft::Attribute { text, .. } | Draft::Record { text, .. } => {
+                    text.pop();
+                    self.controller.context_changed();
+                }
+                Draft::BlackoutOff => return Err("blackout confirmation has no text field".into()),
+            },
+            Action::ClearHold => {
+                self.idle()?;
+                return Ok(Some(Command::ClearToHold));
+            }
+            Action::Blackout(true) => {
+                self.idle()?;
+                return Ok(Some(Command::Blackout(true)));
+            }
+            Action::Blackout(false) => {
+                self.idle()?;
+                if !self.confirmed.blackout {
+                    return Err("blackout already off".into());
+                }
+                self.begin(Draft::BlackoutOff);
+            }
+            Action::Confirm => {
+                self.idle()?;
+                if let Some(modal) = &self.modal {
+                    if modal.revision != self.confirmed.revision
+                        || modal.epoch != self.confirmed.epoch
+                        || modal.show != self.confirmed.show
+                        || modal.selection != self.selected.iter().copied().collect::<Vec<_>>()
+                    {
+                        self.context();
+                        return Err("draft stale; reopen editor".into());
+                    }
+                    let command = match &modal.draft {
+                        Draft::Attribute { attribute, text } => {
+                            let value = typed_value(text)?;
+                            let (low, high) = attribute.range();
+                            let targets = self.targets(*attribute);
+                            if value < low || value > high {
+                                return Err("value outside attribute range".into());
+                            }
+                            if targets.is_empty()
+                                || targets.iter().any(|t| !self.confirmed.supported(*t))
+                            {
+                                return Err("attribute unavailable for complete selection".into());
+                            }
+                            Command::Set { targets, value }
+                        }
+                        Draft::Record {
+                            palette,
+                            replace,
+                            text,
+                        } => {
+                            let id: u16 = text
+                                .parse()
+                                .map_err(|_| "record destination must be 1..32")?;
+                            if !(1..=32).contains(&id) {
+                                return Err("record destination must be 1..32".into());
+                            }
+                            let store = if *palette {
+                                &self.confirmed.palettes
+                            } else {
+                                &self.confirmed.cues
+                            };
+                            if store.contains_key(&id) != *replace {
+                                return Err("destination exists/missing; choose record or update explicitly".into());
+                            }
+                            Command::Record {
+                                id,
+                                palette: *palette,
+                                replace: *replace,
+                            }
+                        }
+                        Draft::BlackoutOff => Command::Blackout(false),
+                    };
+                    self.modal = None;
+                    self.menu = false;
+                    return Ok(Some(command));
+                }
+                return self.confirm_release().map(Some);
+            }
+            Action::Cancel | Action::Back => {
+                let had_panel = self.modal.is_some() || self.preview.is_some() || self.menu;
+                self.context();
+                self.menu = false;
+                if !had_panel {
+                    self.page = Page::Stage;
+                }
+                self.notice = "Cancelled / applied simulation state retained".into();
+            }
+            Action::ContextLost => {
+                self.context();
+                self.menu = false;
+                self.controller.disconnected();
+                self.notice =
+                    "Input context lost / drafts discarded / release controls to rearm".into();
+            }
+        }
+        self.describe_draft();
+        Ok(None)
+    }
+    fn idle(&self) -> Result<(), String> {
+        if !self.connected {
+            Err("disconnected: edits disabled".into())
+        } else if self.pending.is_some() {
+            Err("busy: resolve pending request first".into())
+        } else {
+            Ok(())
+        }
+    }
+    fn begin(&mut self, draft: Draft) {
+        self.context();
+        self.modal = Some(Modal {
+            revision: self.confirmed.revision,
+            epoch: self.confirmed.epoch,
+            draft,
+            selection: self.selected.iter().copied().collect(),
+            show: self.confirmed.show.clone(),
+        });
+        self.menu = true;
+    }
+    fn describe_draft(&mut self) {
+        if let Some(modal) = &self.modal {
+            self.notice = format!(
+                "SIMULATOR draft {:?} / confirm, cancel or back / physical UNKNOWN",
+                modal.draft
+            );
+        }
+    }
     pub fn rotary_label(index: usize) -> &'static str {
         [
             "INT",
@@ -252,12 +535,23 @@ impl Surface {
         ][index]
     }
     pub fn pad_labels(&self) -> [&'static str; 8] {
-        if self.menu {
+        if self.modal.is_some() || self.preview.is_some() {
+            [
+                "PREVIOUS",
+                "NEXT",
+                "--",
+                "--",
+                "--",
+                "BACKSPACE",
+                "CONFIRM",
+                "CANCEL",
+            ]
+        } else if self.menu {
             [
                 "RECORD CUE",
                 "CLEAR HOLD",
                 "RETURN PB",
-                "AUTO VIEW",
+                "EDIT ATTR",
                 "BLACKOUT",
                 "HEALTH",
                 "CONFIRM",
@@ -282,78 +576,121 @@ impl Surface {
         authority: &impl Authority,
     ) -> Result<Option<Command>, String> {
         match event {
+            Input::Action(action) => self.action(action),
             Input::Key(slot) => {
+                if self.modal.is_some() {
+                    if slot > 9 {
+                        return Err("editor keys are digits 0..9".into());
+                    }
+                    let text = match &self.modal.as_ref().unwrap().draft {
+                        Draft::Attribute { text, .. } | Draft::Record { text, .. } => {
+                            format!("{text}{slot}")
+                        }
+                        Draft::BlackoutOff => {
+                            return Err("confirm or cancel blackout reveal".into());
+                        }
+                    };
+                    return self.action(Action::Text(text));
+                }
                 let ids = match self.layer {
                     Layer::Fixtures => self.confirmed.fixtures.get(slot).map(|f| vec![f.id]),
                     Layer::Groups => self.confirmed.groups.get(slot).map(|g| g.members.clone()),
                 };
                 if let Some(ids) = ids {
-                    self.select(&ids)?;
+                    self.selection_focus = slot;
+                    return self.action(Action::Select(ids));
                 }
                 Ok(None)
             }
             Input::Pad(i) => {
-                if self.menu {
-                    match i {
-                        0 => {
-                            let id = (1..=32)
-                                .find(|id| !self.confirmed.cues.contains_key(id))
-                                .ok_or("cue store full")?;
-                            return Ok(Some(Command::Record {
-                                id,
-                                palette: false,
-                                replace: false,
-                            }));
-                        }
-                        1 => return Ok(Some(Command::ClearToHold)),
-                        2 => self.release_preview(
-                            authority,
-                            Attribute::Intensity,
-                            Destination::Playback,
-                        )?,
-                        3 => {
-                            self.page = Page::Automation;
-                            self.menu = false;
-                            self.context();
-                        }
-                        4 => {
-                            if self.confirmed.blackout {
-                                self.notice =
-                                    "Blackout latched: type blackout off to release deliberately"
-                                        .into();
-                            } else {
-                                return Ok(Some(Command::Blackout(true)));
-                            }
-                        }
-                        5 => {
-                            self.page = Page::Health;
-                            self.menu = false;
-                            self.context();
-                        }
-                        6 => return self.confirm_release().map(Some),
-                        _ => {
-                            self.menu = false;
-                            self.context();
-                        }
-                    }
-                } else {
-                    match i {
-                        0 => self.page = Page::Stage,
-                        1 => self.page = Page::Programmer,
-                        2 => self.page = Page::Playbacks,
-                        3 => self.page = Page::Library,
-                        4 => self.additive = !self.additive,
-                        5 => self.selected.clear(),
-                        6 => self.menu = true,
-                        _ => self.page = Page::Stage,
-                    }
-                    self.context();
+                if i >= 8 {
+                    return Err("invalid pad".into());
                 }
-                Ok(None)
+                match self.pad_action(i) {
+                    PadAction::Page(page) => self.action(Action::Page(page)),
+                    PadAction::Multi => self.action(Action::Multi(!self.additive)),
+                    PadAction::Deselect => self.action(Action::Deselect),
+                    PadAction::Menu => {
+                        self.context();
+                        self.menu = true;
+                        Ok(None)
+                    }
+                    PadAction::Back => self.action(Action::Back),
+                    PadAction::Navigate(delta) => self.action(Action::Navigate(delta)),
+                    PadAction::Backspace => self.action(Action::Backspace),
+                    PadAction::Confirm => self.action(Action::Confirm),
+                    PadAction::Cancel => self.action(Action::Cancel),
+                    PadAction::Record => self.action(Action::Record {
+                        id: 1,
+                        palette: false,
+                        replace: false,
+                    }),
+                    PadAction::ClearHold => self.action(Action::ClearHold),
+                    PadAction::ReleasePlayback => {
+                        self.release_preview(
+                            authority,
+                            Attribute::ALL[self.attribute_focus],
+                            Destination::Playback,
+                        )?;
+                        Ok(None)
+                    }
+                    PadAction::Edit => {
+                        self.action(Action::Edit(Attribute::ALL[self.attribute_focus]))
+                    }
+                    PadAction::Blackout => self.action(Action::Blackout(!self.confirmed.blackout)),
+                    PadAction::Unavailable => {
+                        Err("modal panel: use confirm/cancel or destination navigation".into())
+                    }
+                }
             }
             Input::Rotary(index, raw) => {
                 if index >= 16 {
                     return Err("invalid rotary".into());
+                }
+                if let Some(modal) = &self.modal {
+                    if index != 0 {
+                        return Err("draft uses rotary 1 only".into());
+                    }
+                    let (current, range, attribute) = match &modal.draft {
+                        Draft::Attribute { attribute, text } => (
+                            if text.is_empty() {
+                                0.clamp(attribute.range().0, attribute.range().1)
+                            } else {
+                                typed_value(text)?
+                            },
+                            attribute.range(),
+                            true,
+                        ),
+                        Draft::Record { text, .. } => (
+                            text.parse::<i32>()
+                                .map_err(|_| "invalid record destination")?,
+                            (1, 32),
+                            false,
+                        ),
+                        Draft::BlackoutOff => {
+                            return Err("confirm or cancel blackout reveal".into());
+                        }
+                    };
+                    if !(range.0..=range.1).contains(&current) {
+                        return Err("draft outside allowed range".into());
+                    }
+                    if let Some(value) = self.controller.value(index, raw, current, range) {
+                        let text = if attribute {
+                            format!(
+                                "{}{}.{:01}",
+                                if value < 0 { "-" } else { "" },
+                                value.abs() / 10,
+                                value.abs() % 10
+                            )
+                        } else {
+                            value.to_string()
+                        };
+                        let pickup = self.controller.pickup;
+                        let result = self.action(Action::Text(text));
+                        self.controller.pickup = pickup;
+                        return result;
+                    }
+                    return Ok(None);
                 }
                 // Context menus never perform hidden continuous edits.
                 if self.menu || self.preview.is_some() {
@@ -393,12 +730,17 @@ impl Surface {
                 if value == current {
                     return Ok(None);
                 }
-                Ok(Some(if index < 7 {
-                    Command::Set {
-                        targets: self.targets(Attribute::ALL[index]),
-                        value,
-                    }
-                } else if index == 15 {
+                if index < 7 {
+                    self.action(Action::Edit(Attribute::ALL[index]))?;
+                    self.action(Action::Text(format!(
+                        "{}{}.{:01}",
+                        if value < 0 { "-" } else { "" },
+                        value.abs() / 10,
+                        value.abs() % 10
+                    )))?;
+                    return self.action(Action::Confirm);
+                }
+                Ok(Some(if index == 15 {
                     Command::Master(value)
                 } else {
                     Command::PlaybackLevel {

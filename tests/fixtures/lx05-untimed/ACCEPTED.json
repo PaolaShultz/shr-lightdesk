@@ -1,0 +1,17 @@
+{
+  "state": "accepted-read-only-wire-data-and-actual-provider-release",
+  "schema": "lx05-v1",
+  "runtime_sha256": "53b56b3b649da46c02206ea6559de851e1071ce4d81f8f2488d5a64f6b0a8b76",
+  "files": {
+    "WIRE.md": "bc58abba80db4c05ac8258ac52a03c5b2d5c246cda1c868e19d168616d3e2577",
+    "untimed-absent.json": "07f6989ad4f13a0590a9498a726d1a55880c55dd328a1e6c2db9a9f43151c9d6"
+  },
+  "review": "baseline_lux_review Sol6.1 low + root actual executable inventory",
+  "semantics": "LX05 release optional and strict if present; preview gated validated capability; checkpoint requires validated durable capability; legacy exact; no provider runtime change",
+  "provider_repository": "https://github.com/PaolaShultz/shr-lux",
+  "provider_commit": "515ac001dad6e1fe530b76f4c5b12f8d82f4c6e8",
+  "limits": [
+    "Read-only analysis consumer; no calibration/grant writable UI",
+    "Actual timed, durable and untimed interoperability validated; physical unknown"
+  ]
+}

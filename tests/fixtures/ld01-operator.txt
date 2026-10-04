@@ -1,0 +1,16 @@
+select 11
+edit INT
+text 45.0
+status
+confirm
+record cue
+text 2
+confirm
+blackout on
+blackout off
+status
+cancel
+blackout off
+confirm
+status
+quit
