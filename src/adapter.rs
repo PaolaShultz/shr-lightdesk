@@ -758,7 +758,9 @@ fn inventory(v: &Value, expected_show: &str, epoch: u64, revision: u64) -> Resul
     }
     let inv = &v["authority_inventory"];
     schema(inv, &["cues", "palettes", "playbacks", "fixture_masters"])?;
-    let target_limit = integer(&l["targets"])? as usize;
+    // `limits.targets` bounds one edit, not a look accumulated by several edits.
+    // A stored/playing look can contain every advertised fixture attribute.
+    let target_limit = p.caps.len();
     let cues = stores(
         &inv["cues"],
         &p,

@@ -55,6 +55,10 @@ remains read-only. No startup auto-connect occurs. The accepted LX03 provider is
 synthetic, volatile, null/disarmed; submitted/observed and physical light stay
 unknown. Simulator commands remain independently available under `simulate`.
 
+Saved cues, palettes and playing looks may span every advertised fixture attribute,
+even when assembled through several edits. The 64-target limit applies to each
+incoming edit; it does not truncate or reject a complete accumulated look.
+
 Cached logical state is explicitly `Fresh`, `Stale`, or `Unavailable`, independently
 of always-unknown physical output. A complete compatible receipt is Fresh for
 2000ms; invalid/incomplete pages, expiry, timeout, or link loss retain last-known

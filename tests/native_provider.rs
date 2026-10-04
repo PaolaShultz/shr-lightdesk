@@ -99,6 +99,100 @@ fn lighting_config(broker: PathBuf, dir: PathBuf, expected: &str) -> Config {
     }
 }
 #[test]
+#[ignore = "explicit accepted Lux executable in GP_LUX_PROVIDER"]
+fn accumulated_cue_palette_and_playback_exceed_one_edit_without_losing_state() {
+    use shr_lightdesk::{
+        adapter::Freshness,
+        lux_control::{LightingAuthority, local::LocalClient},
+    };
+    let lux = PathBuf::from(std::env::var("GP_LUX_PROVIDER").expect("explicit accepted Lux"));
+    let mut scope = Scope::new();
+    let directory = scope.dir("large-look");
+    scope.children.push(
+        Command::new(lux)
+            .args(["--synthetic-private-dir", directory.to_str().unwrap()])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .unwrap(),
+    );
+    let socket = directory.join("lux.sock");
+    wait(|| socket.exists());
+    let mut client = LocalClient::connect(
+        &socket,
+        "11111111-1111-4111-8111-111111111111",
+        1,
+        "large-look-review",
+    )
+    .unwrap();
+    assert_eq!(client.grant().unwrap()["kind"], "applied");
+    // Use the provider's own advertised seven-attribute synthetic personality.
+    let template = client.authority.snapshot().unwrap()["patch"]["fixtures"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["mode"] == "rgb_position")
+        .expect("synthetic RGB position fixture")
+        .clone();
+    let mut fixtures = Vec::new();
+    let mut values = Vec::new();
+    for n in 0..10 {
+        let mut fixture = template.clone();
+        fixture["id"] = json!(format!("large-{n}"));
+        fixture["address"] = json!(1 + n * 7);
+        for cap in fixture["capabilities"].as_array().unwrap() {
+            values.push(json!({"fixture":fixture["id"],"attribute":cap["attribute"],"value":cap["default"]}));
+        }
+        fixtures.push(fixture);
+    }
+    let patch = json!({"version":1,"patch_revision":"2","fixtures":fixtures});
+    assert_eq!(
+        client
+            .command(json!({"action":"replace_patch","patch":patch}))
+            .unwrap()["kind"],
+        "applied"
+    );
+    assert_eq!(values.len(), 70);
+    // The provider still refuses an oversized single edit.
+    assert_eq!(
+        client
+            .command(json!({"action":"touch","values":values}))
+            .unwrap()["reason"],
+        "capacity"
+    );
+    for batch in values.chunks(35) {
+        assert_eq!(
+            client
+                .command(json!({"action":"touch","values":batch}))
+                .unwrap()["kind"],
+            "applied"
+        );
+    }
+    for action in [
+        json!({"action":"record","kind":"cue","id":"large-cue"}),
+        json!({"action":"record","kind":"palette","id":"large-palette"}),
+        json!({"action":"go","cue":"large-cue","playback":"large-playback"}),
+    ] {
+        assert_eq!(client.command(action).unwrap()["kind"], "applied");
+        assert_eq!(
+            client.authority.freshness(),
+            Freshness::Fresh,
+            "{}",
+            client.authority.notice
+        );
+    }
+    for kind in ["cues", "palettes", "playbacks"] {
+        assert_eq!(
+            client.authority.snapshot().unwrap()["authority_inventory"][kind][0]["values"]
+                .as_array()
+                .unwrap()
+                .len(),
+            70
+        );
+    }
+}
+#[test]
 #[ignore = "explicit accepted role/Lux executables in GP_ROLE_BROKER and GP_LUX_PROVIDER"]
 fn actual_role_lux_semantic_render_and_loss_fence() {
     let broker = PathBuf::from(std::env::var("GP_ROLE_BROKER").expect("explicit accepted broker"));

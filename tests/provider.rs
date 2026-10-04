@@ -69,6 +69,74 @@ fn actual_provider_snapshots_decode_and_present_full_ladder() {
     }
 }
 #[test]
+fn complete_accumulated_looks_use_patch_capacity_not_edit_capacity() {
+    let mut inventory = payload(&page());
+    let fixture = inventory["patch"]["fixtures"][0].clone();
+    let metadata = inventory["capability_metadata"][0].clone();
+    let snapshot = inventory["snapshot"]["fixtures"][0].clone();
+    let mut fixtures = Vec::new();
+    let mut capabilities = Vec::new();
+    let mut snapshots = Vec::new();
+    let mut ids = Vec::new();
+    let mut values = Vec::new();
+    for n in 0..10 {
+        let fid = json!(format!("wide-{n}"));
+        ids.push(fid.clone());
+        let mut f = fixture.clone();
+        f["id"] = fid.clone();
+        f["address"] = json!(1 + n * 7);
+        fixtures.push(f);
+        let mut m = metadata.clone();
+        m["fixture"] = fid.clone();
+        capabilities.push(m);
+        let mut s = snapshot.clone();
+        s["fixture"] = fid.clone();
+        for a in s["attributes"].as_array_mut().unwrap() {
+            let value = a["resolved"].clone();
+            values.push(json!({"fixture":fid,"attribute":a["attribute"],"value":value}));
+            a["stored"] = json!([
+                {"kind":"cue","id":"wide-cue","value":value},
+                {"kind":"palette","id":"wide-palette","value":value}
+            ]);
+            a["playing"] = json!([{"id":"wide-playback","value":value}]);
+            a["source"] = json!({"playback":"wide-playback"});
+            a["contributors"] = json!([{"source":a["source"],"value":value,"winner":true}]);
+        }
+        snapshots.push(s);
+    }
+    assert_eq!(values.len(), 70);
+    assert_eq!(inventory["limits"]["targets"], 64);
+    inventory["patch"]["fixtures"] = json!(fixtures);
+    inventory["capability_metadata"] = json!(capabilities);
+    inventory["snapshot"]["fixtures"] = json!(snapshots);
+    inventory["groups"] = json!([{"id":"all","fixtures":ids}]);
+    inventory["authority_inventory"]["cues"] = json!([{"id":"wide-cue","values":values}]);
+    inventory["authority_inventory"]["palettes"] = json!([{"id":"wide-palette","values":values}]);
+    inventory["authority_inventory"]["playbacks"] =
+        json!([{"id":"wide-playback","level":1000,"activation_order":"1","values":values}]);
+    let decode = |inventory: &Value| {
+        let text = serde_json::to_string(inventory).unwrap();
+        let chunks: Vec<_> = text.as_bytes().chunks(40_000).collect();
+        let mut c = client();
+        for (n, chunk) in chunks.iter().enumerate() {
+            let mut p = page();
+            p["body"]["page"] = json!(n);
+            p["body"]["page_count"] = json!(chunks.len());
+            p["body"]["chunk"] = json!(std::str::from_utf8(chunk).unwrap());
+            c.ingest(&bytes(&p), 0)?;
+        }
+        c.finish()?;
+        Ok::<_, String>(c)
+    };
+    assert_eq!(decode(&inventory).unwrap().snapshot(), Some(&inventory));
+    // Enlarging the look bound must retain per-target identity and uniqueness checks.
+    for kind in ["cues", "palettes", "playbacks"] {
+        let mut bad = inventory.clone();
+        bad["authority_inventory"][kind][0]["values"][1] = values[0].clone();
+        assert!(decode(&bad).is_err());
+    }
+}
+#[test]
 fn actual_provider_refusal_inventories_validate_without_partial_commit() {
     let data: Value = serde_json::from_str(include_str!("fixtures/lx03/refusals.json")).unwrap();
     for case in data["cases"].as_array().unwrap() {
