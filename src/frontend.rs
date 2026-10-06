@@ -1125,6 +1125,7 @@ impl Worker {
             let mut command_error = None;
             let mut workflow = Workflow::default();
             let mut had_role = role_guard();
+            let mut observing = op.is_some();
             while !quit.load(Ordering::Acquire) {
                 let current = g.load(Ordering::Acquire);
                 if seen != current {
@@ -1182,6 +1183,10 @@ impl Worker {
                                 operator.client.set_role_guard(role_guard.clone());
                             }
 
+                            let disconnect_requested = matches!(&intent.payload,
+                                Payload::Line(line) if line.trim() == "disconnect");
+                            let reconnect_requested = matches!(&intent.payload,
+                                Payload::Line(line) if line.split_whitespace().next() == Some("reconnect"));
                             let result = if !writable_role && !readonly {
                                 Err("live GP09 lighting lease required; keyboard read-only".into())
                             } else {
@@ -1222,6 +1227,12 @@ impl Worker {
                             };
                             match result {
                                 Ok((running, text)) => {
+                                    if disconnect_requested {
+                                        observing = false;
+                                    }
+                                    if reconnect_requested {
+                                        observing = true;
+                                    }
                                     notice = text;
                                     if !running {
                                         break;
@@ -1246,6 +1257,7 @@ impl Worker {
                                         Ok(mut connected) => {
                                             let _ = connected.input.lost();
                                             op = Some(connected);
+                                            observing = true;
                                             notice = "Reconnected; release Enter then grant; old intents discarded".into();
                                         }
                                         Err(e) => notice = format!("Reconnect refused: {e}"),
@@ -1266,20 +1278,33 @@ impl Worker {
                     let live_now = role_guard();
                     if had_role && !live_now {
                         operator.client.authority.disconnect();
+                        let _ = operator.input.lost();
                         workflow.lost();
                     }
-                    had_role |= live_now;
+                    had_role = live_now;
                     let _ = operator.client.authority.advance(operator.client.now());
-                    if role_guard() && refreshed.elapsed() >= Duration::from_millis(500) {
-                        if let Err(e) = operator
-                            .client
-                            .maintain()
-                            .and_then(|_| operator.client.refresh())
-                        {
+                    if observing && refreshed.elapsed() >= Duration::from_millis(500) {
+                        // Observation is independent of GP09 write authority. Failed transport
+                        // still requires explicit reconnect; role loss alone does not stop reads.
+                        let maintenance = if live_now {
+                            operator.client.maintain()
+                        } else {
+                            Ok(())
+                        };
+                        let observation = operator.client.refresh();
+                        if let Err(e) = observation {
+                            observing = false;
                             let _ = operator.input.lost();
                             workflow.lost();
                             notice =
                                 format!("Provider unavailable: {e}; explicit reconnect required");
+                        }
+                        if let Err(e) = maintenance {
+                            let _ = operator.input.lost();
+                            workflow.lost();
+                            if observing {
+                                notice = format!("Writer unavailable: {e}; observing read-only");
+                            }
                         }
                         refreshed = Instant::now();
                     }
@@ -1404,7 +1429,6 @@ pub struct Keyboard {
 }
 impl Keyboard {
     pub fn context_lost(&mut self) {
-        self.draft.clear();
         self.held_enter = true;
     }
     pub fn focus(&mut self, focused: bool) {
@@ -1480,9 +1504,14 @@ mod tests {
         k.release_enter();
         k.text("touch intensity 0");
         k.context_lost();
-        assert!(k.draft.is_empty());
+        assert_eq!(k.draft, "touch intensity 0");
+        assert!(k.enter().is_none());
+        k.focus(false);
+        k.focus(true);
+        assert_eq!(k.draft, "touch intensity 0");
         assert!(k.enter().is_none());
         k.release_enter();
+        assert_eq!(k.enter().unwrap(), "touch intensity 0");
         k.text(&"a".repeat(TEXT_BOUND));
         k.text("b");
         assert_eq!(k.draft.len(), TEXT_BOUND);

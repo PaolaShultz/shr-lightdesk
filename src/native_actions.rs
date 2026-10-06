@@ -90,7 +90,6 @@ impl ReviewProgress {
 }
 impl Workflow {
     pub fn lost(&mut self) {
-        self.editor = None;
         self.lease = None;
         self.progress = ReviewProgress::default();
     }
@@ -107,6 +106,7 @@ impl Workflow {
         Ok("Detached draft; Enter reviews exact targets; release then Enter confirms".into())
     }
     fn discard(&mut self, op: &mut Operator) -> Result<(), String> {
+        self.editor = None;
         self.lost();
         op.input.invalidate()
     }
@@ -333,6 +333,17 @@ impl Workflow {
                         }
                         op.input.held_enter = true;
                         op.client.maintain()?;
+                        if !op.client.authority.writable(op.client.now()) {
+                            return Err("fresh writer required to review retained draft".into());
+                        }
+                        if self.selection != op.selected.iter().cloned().collect::<Vec<_>>() {
+                            return Err(
+                                "draft selection changed; restore original selection or cancel"
+                                    .into(),
+                            );
+                        }
+                        self.revision = op.client.authority.revision();
+                        self.lease = op.client.authority.lease_id().map(str::to_owned);
                         self.check_draft(op)?;
                         let command = match editor {
                             Editor::Existing(Draft::Attribute { attribute, text }) => {
@@ -406,6 +417,7 @@ impl Workflow {
                     }
                 }
                 Action::Cancel | Action::Back => {
+                    self.editor = None;
                     self.lost();
                     op.line("cancel").map(|(_, s)| s)
                 }

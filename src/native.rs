@@ -301,10 +301,7 @@ impl App {
     }
     fn lost(&mut self) {
         self.worker.invalidate();
-        self.keyboard.draft.clear();
         self.keyboard.context_lost();
-        self.command_mode = false;
-        self.semantic_editing = false;
         self.review_seen = None;
         self.review_context = None;
     }

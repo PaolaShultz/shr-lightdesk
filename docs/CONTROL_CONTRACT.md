@@ -204,3 +204,19 @@ physical unknown; native display, command writes, timed release and durable rest
 await later reviewed providers/gates. Pinned codec dependencies do not import Lux
 source or lighting algorithms. See tests/fixtures/lx03/PROVENANCE.json for exact
 accepted producer source/data identities.
+
+## Observation and detached draft recovery
+
+GP09 is a write fence, not an observation prerequisite. The native worker polls
+read-only snapshots every 500 ms while its connection is available, independently
+of role availability. Role loss retires local writer authority once; repeated reads
+do not restore that authority. Provider failure and explicit disconnect require
+explicit reconnect. Snapshot I/O bypasses only the role write guard, retaining
+transport cancellation, session deadlines and strict snapshot validation.
+
+Focus/context loss retains inert command text and semantic editor content but clears
+review progress and executable input authority. Resize follows the same rule.
+A subsequent semantic Enter revalidates current lease, selection and advertised
+values and creates a new review at the current revision. It cannot confirm an old
+review or submit on a held key. Cancel explicitly discards the draft. This is
+in-process recovery, not saved-show or crash persistence.

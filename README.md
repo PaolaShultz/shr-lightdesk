@@ -145,8 +145,8 @@ confirms only after the full exact review has been shown. PageUp/PageDown scroll
 all targets; F12 shows help; Escape cancels; Backspace edits. RGB and position
 editors take three/two coherent component values. Unadvertised effects/groups
 remain unavailable. `:` opens the secondary command console; its confirmation
-uses the same review gate. Focus/resize/device loss/overflow discard detached
-input. Provider retries check cancellation before every send, preserving an
+uses the same review gate. Focus/resize/device loss/overflow preserve detached
+content while invalidating queued input, held actions and confirmations. Provider retries check cancellation before every send, preserving an
 already-submitted uncertain outcome and requiring explicit reconnect.
 
 Native and worker-offscreen modes require a live accepted GP09 `lighting-desk`
@@ -176,3 +176,12 @@ does not calculate AUTO arbitration or expose calibration/grant controls.
 Existing leased human commands remain available with this schema. Timed release
 and durable recovery require their validated advertised capabilities; analysis
 alone does not enable them. Legacy LX01–04 decoding remains strict.
+
+Automatic read-only observation continues without a GP09 lighting role and after
+role loss. Grants, renewals and mutations still require the live role. Explicit
+disconnect and transport failure stop polling until an explicit reconnect; a role
+loss during an already submitted operation may therefore leave the surface unavailable.
+Focus and resize preserve typed commands and detached semantic editors in memory,
+while invalidating held input, queued commands and confirmations. Retained semantic
+drafts require released input, fresh authority and a new complete review before
+confirmation; changed selections refuse review. Esc remains explicit cancellation.

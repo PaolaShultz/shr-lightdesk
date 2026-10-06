@@ -8,6 +8,27 @@ recovery. Current counts are recorded below. No physical output, operator displa
 MIDI/LED or combined hardware/load acceptance is claimed. The dated foundation
 evidence is preserved.
 
+## Read-only observation and draft recovery fixes — 2026-10-06
+
+The frontend continues automatic snapshot observation without GP09 write authority.
+Role loss retires local authority once; grants and mutations remain fenced. Explicit
+disconnect and transport failures still require explicit reconnect. Snapshot reads
+preserve transport/session checks while bypassing the role-only write guard.
+Focus and resize retain command text and detached semantic drafts while invalidating
+held input, queued commands and review progress. Fresh validation and a new complete
+review precede confirmation. Synthetic private-socket regressions exercise unbound
+polling, write refusal, role-loss reads, disconnect and retained-draft review.
+No live Lux, broker, native-window or physical acceptance is implied.
+
+
+Local offline validation: **109 default / 110 native tests passed**,
+with 4/5 opt-ins intentionally skipped. Both warning-denied Clippy
+configurations, formatting and 9 Python tests passed. Reproduce with
+`CARGO_INCREMENTAL=0 cargo test --locked -j1 --all-targets`, then the same command
+with `--features native`, under the shared build lock. Historical, physical,
+external-artifact and explicit rendering campaigns were not run. No publication
+or physical/native-window activation was performed.
+
 ## Original offline foundation
 
 - Eight synthetic fixtures with declared capabilities: two dimmers, four RGB
@@ -176,7 +197,6 @@ actual accepted LX04 IPC passed on the corrected completed-frame deadline path.
 Independent coordinator final acceptance is pending; software implementation and
 offline evidence are complete, native/physical/shared-load gates remain unchanged.
 
-
 ### Task0009 LD02 native software continuation (validation in progress)
 
 Optional pinned winit0.30.12 X11/rwh_06, wgpu0.20.1 WGSL and pollster0.3.0 were
@@ -199,7 +219,6 @@ must all be presented successfully before confirmation; console confirmation
 uses the same context gate.
 Current tests/build results will be appended after completion. The10Hz CPU-raster
 frontend is useful software, not a measured60Hz or production hardware claim.
-
 
 Task0009 pass1 current-source software evidence: **91 default normal tests passed**
 (three producer tests explicitly ignored in the default run), then **three actual

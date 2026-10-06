@@ -507,6 +507,7 @@ pub mod local {
         cancellation: Option<(std::sync::Arc<std::sync::atomic::AtomicU64>, u64)>,
         transport_cancelled: bool,
         role_guard: Option<std::sync::Arc<dyn Fn() -> bool + Send + Sync>>,
+        read_only_io: bool,
     }
     impl LocalClient {
         pub fn connect(path: &Path, show: &str, epoch: u64, writer: &str) -> Result<Self> {
@@ -521,6 +522,7 @@ pub mod local {
                 cancellation: None,
                 transport_cancelled: false,
                 role_guard: None,
+                read_only_io: false,
             };
             c.refresh()?;
             Ok(c)
@@ -537,7 +539,7 @@ pub mod local {
         }
         fn check_cancellation(&mut self) -> Result<()> {
             if self.transport_cancelled
-                || self.role_guard.as_ref().is_some_and(|guard| !guard())
+                || (!self.read_only_io && self.role_guard.as_ref().is_some_and(|guard| !guard()))
                 || self.cancellation.as_ref().is_some_and(|(g, expected)| {
                     g.load(std::sync::atomic::Ordering::Acquire) != *expected
                 })
@@ -670,6 +672,12 @@ pub mod local {
             result
         }
         fn refresh_inner(&mut self) -> Result<()> {
+            self.read_only_io = true;
+            let result = self.read_snapshot();
+            self.read_only_io = false;
+            result
+        }
+        fn read_snapshot(&mut self) -> Result<()> {
             session_guard(self.now())?;
             let bytes =
                 serde_json::to_vec(&self.authority.read_envelope()).map_err(|e| e.to_string())?;
@@ -861,6 +869,7 @@ pub mod local {
                 cancellation: None,
                 transport_cancelled: false,
                 role_guard: None,
+                read_only_io: false,
             };
             client.set_input_context(generation.clone(), 1);
             let thread = std::thread::spawn(move || {
@@ -891,6 +900,7 @@ pub mod local {
                 cancellation: None,
                 transport_cancelled: false,
                 role_guard: None,
+                read_only_io: false,
             };
             let error = c
                 .receive(Instant::now() + Duration::from_millis(100))
