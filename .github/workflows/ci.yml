@@ -1,0 +1,66 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  CARGO_INCREMENTAL: 0
+  CARGO_BUILD_JOBS: 1
+  PYTHONDONTWRITEBYTECODE: 1
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        cargo_args: ['', '--features native']
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Install Linux development dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install --no-install-recommends -y pkg-config libx11-dev libxkbcommon-dev libvulkan1 mesa-vulkan-drivers
+      - name: Install exact Rust toolchain
+        run: |
+          rustup toolchain install 1.97.1 --profile minimal --component rustfmt
+          rustc +1.97.1 -vV
+      - name: Formatting
+        run: |
+          cargo +1.97.1 fmt --all -- --check
+      - name: Locked check
+        run: |
+          cargo +1.97.1 check --locked --all-targets ${{ matrix.cargo_args }}
+      - name: Normal offline tests
+        run: |
+          unset DISPLAY WAYLAND_DISPLAY VK_DRIVER_FILES VK_ICD_FILENAMES VK_ADD_DRIVER_FILES
+          cargo +1.97.1 test --locked --all-targets ${{ matrix.cargo_args }} -- --test-threads=1
+      - name: CPU-only Vulkan upload and readback
+        if: matrix.cargo_args == '--features native'
+        run: |
+          unset DISPLAY WAYLAND_DISPLAY VK_DRIVER_FILES VK_ADD_DRIVER_FILES
+          if [ ! -e /usr/share/vulkan/icd.d/lvp_icd.json ]; then
+            test -f /usr/share/vulkan/icd.d/lvp_icd.x86_64.json
+            sudo ln -s lvp_icd.x86_64.json /usr/share/vulkan/icd.d/lvp_icd.json
+          fi
+          export VK_ICD_FILENAMES=/usr/share/vulkan/icd.d/lvp_icd.json
+          export XDG_RUNTIME_DIR="$RUNNER_TEMP/lightdesk-runtime"
+          install -d -m 0700 "$XDG_RUNTIME_DIR"
+          cargo +1.97.1 test --locked --features native --lib native::tests::software_wgpu_upload_shader_readback -- --ignored --exact --nocapture
+      - name: Publication boundary and guard regressions
+        run: |
+          python3 scripts/check_publication.py
+          python3 -m unittest discover -s scripts -p 'test_*.py'
