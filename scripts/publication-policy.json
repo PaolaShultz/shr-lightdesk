@@ -35,6 +35,134 @@
         "assets/fonts/OFL.txt": "a55002966476f63af8c72b6faef4acc736c5f779e8657657c250f6e8f61444f7",
         "THIRD_PARTY.md": "7f9b4a66c65944fb59cc3d03348703b6b76502930f15405bfc99e115f7ded883"
       }
+    },
+    "docs/console-screen-reference/images/01-grandma3-fixture-sheet.png": {
+      "size": 179997,
+      "magic_hex": "89504e470d0a1a0a",
+      "sha256": "3c4aabfa6c1224f3842a8c217ca5d67ea45ddaec44969114d2578f20aa6d07ab",
+      "required_files": {
+        "docs/console-screen-reference/SOURCES.md": "24bc12a8d9fa41711034d084eaf4f3b6c14be8f4a4a61190134ef639b2dc0508"
+      }
+    },
+    "docs/console-screen-reference/images/02-grandma3-phaser-auto.png": {
+      "size": 277366,
+      "magic_hex": "89504e470d0a1a0a",
+      "sha256": "f5ed671984607156976978d10688d7937ea3bd8de2f10964d9341c07c4effce8",
+      "required_files": {
+        "docs/console-screen-reference/SOURCES.md": "24bc12a8d9fa41711034d084eaf4f3b6c14be8f4a4a61190134ef639b2dc0508"
+      }
+    },
+    "docs/console-screen-reference/images/03-grandma3-phaser-2d.png": {
+      "size": 228506,
+      "magic_hex": "89504e470d0a1a0a",
+      "sha256": "7f163b82d8200af94bdc40526cbc465dc089600d1de3b9ac19851e89e2f4888c",
+      "required_files": {
+        "docs/console-screen-reference/SOURCES.md": "24bc12a8d9fa41711034d084eaf4f3b6c14be8f4a4a61190134ef639b2dc0508"
+      }
+    },
+    "docs/console-screen-reference/images/04-magicq-empty-programmer.png": {
+      "size": 20644,
+      "magic_hex": "89504e470d0a1a0a",
+      "sha256": "4b83c3ef43af932fc53dbf6a6568127ead253939dc9fb7d4d77580b8d8db2d97",
+      "required_files": {
+        "docs/console-screen-reference/SOURCES.md": "24bc12a8d9fa41711034d084eaf4f3b6c14be8f4a4a61190134ef639b2dc0508"
+      }
+    },
+    "docs/console-screen-reference/images/05-magicq-programmer-times.png": {
+      "size": 158059,
+      "magic_hex": "89504e470d0a1a0a",
+      "sha256": "46e2ed7d185f4b20886addb9d284e9244d8de0de6af639ac665db45bd63487c4",
+      "required_files": {
+        "docs/console-screen-reference/SOURCES.md": "24bc12a8d9fa41711034d084eaf4f3b6c14be8f4a4a61190134ef639b2dc0508"
+      }
+    },
+    "docs/console-screen-reference/images/06-magicq-head-output.png": {
+      "size": 196901,
+      "magic_hex": "89504e470d0a1a0a",
+      "sha256": "e061580fe11ff34f4346eaf98aff5b5df1462f40e2377e4dcee0c711c2d8d534",
+      "required_files": {
+        "docs/console-screen-reference/SOURCES.md": "24bc12a8d9fa41711034d084eaf4f3b6c14be8f4a4a61190134ef639b2dc0508"
+      }
+    },
+    "docs/console-screen-reference/images/07-avolites-colour-mix.png": {
+      "size": 76038,
+      "magic_hex": "89504e470d0a1a0a",
+      "sha256": "627051f6113dd459f410d679c668d5653f12ddf77efc3d7e0ec8bf19bec11e1a",
+      "required_files": {
+        "docs/console-screen-reference/SOURCES.md": "24bc12a8d9fa41711034d084eaf4f3b6c14be8f4a4a61190134ef639b2dc0508"
+      }
+    },
+    "docs/console-screen-reference/images/08-avolites-gobo-selection.png": {
+      "size": 48413,
+      "magic_hex": "89504e470d0a1a0a",
+      "sha256": "edf0b40127b67d657d2aacc07ee3c0a0e4083eaba3cd235daa80042d1208cea9",
+      "required_files": {
+        "docs/console-screen-reference/SOURCES.md": "24bc12a8d9fa41711034d084eaf4f3b6c14be8f4a4a61190134ef639b2dc0508"
+      }
+    },
+    "docs/console-screen-reference/images/09-avolites-channel-grid.png": {
+      "size": 141678,
+      "magic_hex": "89504e470d0a1a0a",
+      "sha256": "9dc229730f5079048c361204bd95898af903fe3a891f9cf6756c0fddfa59fbd7",
+      "required_files": {
+        "docs/console-screen-reference/SOURCES.md": "24bc12a8d9fa41711034d084eaf4f3b6c14be8f4a4a61190134ef639b2dc0508"
+      }
+    },
+    "docs/console-screen-reference/images/10-onyx-programmer-capabilities.png": {
+      "size": 16508,
+      "magic_hex": "89504e470d0a1a0a",
+      "sha256": "f4468cd06b15bba99b7c280430cacc2135d63fcf64c793213f2a1296f84d7b0d",
+      "required_files": {
+        "docs/console-screen-reference/SOURCES.md": "24bc12a8d9fa41711034d084eaf4f3b6c14be8f4a4a61190134ef639b2dc0508"
+      }
+    },
+    "docs/console-screen-reference/images/11-onyx-programmer-values.png": {
+      "size": 141321,
+      "magic_hex": "89504e470d0a1a0a",
+      "sha256": "1b2dcd3f80775714965901c359170ab8eae71ec91f12aae552c4d6957dcdcb34",
+      "required_files": {
+        "docs/console-screen-reference/SOURCES.md": "24bc12a8d9fa41711034d084eaf4f3b6c14be8f4a4a61190134ef639b2dc0508"
+      }
+    },
+    "docs/console-screen-reference/images/12-eos-tracking-sheet.png": {
+      "size": 368819,
+      "magic_hex": "89504e470d0a1a0a",
+      "sha256": "76fed378fef39cab52cfeb55d9602fca0c2a7dfd138f7a1815bbae72a3b817f6",
+      "required_files": {
+        "docs/console-screen-reference/SOURCES.md": "24bc12a8d9fa41711034d084eaf4f3b6c14be8f4a4a61190134ef639b2dc0508"
+      }
+    },
+    "docs/console-screen-reference/images/13-eos-colour-picker.png": {
+      "size": 342292,
+      "magic_hex": "89504e470d0a1a0a",
+      "sha256": "0d8ebe71f98b2492ff9795f8cdac33bb1fb2fbb3d5c29b663fdd18dc57d65ffa",
+      "required_files": {
+        "docs/console-screen-reference/SOURCES.md": "24bc12a8d9fa41711034d084eaf4f3b6c14be8f4a4a61190134ef639b2dc0508"
+      }
+    },
+    "docs/console-screen-reference/images/14-eos-ml-controls.png": {
+      "size": 124423,
+      "magic_hex": "89504e470d0a1a0a",
+      "sha256": "7814b79af43c4a09664e3c7f7854ae6e18991b91766af8b40884fcef5a7ba191",
+      "required_files": {
+        "docs/console-screen-reference/SOURCES.md": "24bc12a8d9fa41711034d084eaf4f3b6c14be8f4a4a61190134ef639b2dc0508"
+      }
+    },
+    "docs/console-screen-reference/images/15-grandma3-sequence-sheet.png": {
+      "size": 123661,
+      "magic_hex": "89504e470d0a1a0a",
+      "sha256": "c68a305cc97158a4c8bd1b7339f0cfa1264f6b291608162591cc15fd3708ce41",
+      "required_files": {
+        "docs/console-screen-reference/SOURCES.md": "24bc12a8d9fa41711034d084eaf4f3b6c14be8f4a4a61190134ef639b2dc0508"
+      }
+    },
+    "docs/console-screen-reference/images/16-avolites-virtual-playbacks.png": {
+      "size": 60570,
+      "magic_hex": "89504e470d0a1a0a",
+      "sha256": "5ce85b4090dd335832f3f028c8b84aea51ad1e0faa4e1298af8584a4c0abf10c",
+      "required_files": {
+        "docs/console-screen-reference/SOURCES.md": "24bc12a8d9fa41711034d084eaf4f3b6c14be8f4a4a61190134ef639b2dc0508"
+      }
     }
   }
 }
