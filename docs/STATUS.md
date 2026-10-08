@@ -18,6 +18,14 @@ Hold, explicit revoke and disarmed durable restart. Full current-source default/
 native gates and final independent review are recorded in the private task handoff.
 No physical output, display or controller acceptance is claimed.
 
+Pi5 final software gates: **116 default / 117 native normal tests**, five explicit
+actual-provider episodes (including configured analysis plus simultaneous read-only
+Desk), both all-target warning-denied Clippy checks, both releases, formatting,
+nine Python policy tests and complete-index publication checks passed. The optional
+CPU Vulkan readback requires a separately verified software ICD; Pi5 has none, so
+the exact native test executable is handed to the coordinator for Pi4 execution.
+Physical, display, audio/MIDI/DMX and shared-load tests remain excluded.
+
 
 The native LD-02 software frontend, actual Lux snapshot/control client and
 read-only LX05 analysis compatibility are implemented and software-validated against

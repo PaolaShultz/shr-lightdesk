@@ -647,6 +647,10 @@ fn configured_analysis_calibration_scoped_auto_and_source_loss() {
             .iter()
             .any(|line| line.contains("2000"))
     );
+    let review_scene = shr_lightdesk::frontend::scene(&reviewed, "", 0);
+    assert!(review_scene.in_bounds());
+    let review_ppm = shr_lightdesk::render::ppm(&review_scene);
+    assert!(review_ppm.starts_with(b"P6\n1920 1080\n255\n"));
     confirm(&worker);
     wait(|| {
         worker.view.lock().unwrap().inventory.as_ref().unwrap()["analysis"]["automatic_layer"]["values"].as_array().is_some_and(|vs|vs.iter().any(|v|v["fixture"]=="front" && v["source"]=="analysis-active"))
@@ -709,6 +713,11 @@ fn configured_analysis_calibration_scoped_auto_and_source_loss() {
     wait(|| {
         worker.view.lock().unwrap().inventory.as_ref().unwrap()["analysis"]["source_epoch"] == "10"
     });
+    let mut health_view = worker.view.lock().unwrap().clone();
+    health_view.page = "health".into();
+    let health_scene = shr_lightdesk::frontend::scene(&health_view, "", 0);
+    assert!(health_scene.in_bounds());
+    assert!(shr_lightdesk::render::svg(&health_scene).contains("<svg"));
     let rebound = worker.view.lock().unwrap().inventory.clone().unwrap();
     assert!(rebound["analysis"]["grant"].is_null());
     assert_ne!(rebound["analysis"]["state"], "ready");
