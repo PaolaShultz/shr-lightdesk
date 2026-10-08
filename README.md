@@ -171,8 +171,8 @@ Opt-in Lux `lx05-v1` snapshots are supported as read-only metadata. Current
 analysis health/confidence and intensity proposals are distinct from each retained
 AUTO contribution. Health shows that contribution's original source, window and
 calibration provenance, even after source reconnect. Beat, downbeat and harmony
-remain unavailable. Lux supplies resolved values and winning sources; Lightdesk
-does not calculate AUTO arbitration or expose calibration/grant controls.
+remain unavailable. Lux supplies resolved values and winning sources; Lightdesk does not calculate AUTO arbitration.
+Explicit calibration and bounded AUTO controls use the same reviewed writer authority.
 Existing leased human commands remain available with this schema. Timed release
 and durable recovery require their validated advertised capabilities; analysis
 alone does not enable them. Legacy LX01–04 decoding remains strict.
@@ -185,3 +185,21 @@ Focus and resize preserve typed commands and detached semantic editors in memory
 while invalidating held input, queued commands and confirmations. Retained semantic
 drafts require released input, fresh authority and a new complete review before
 confirmation; changed selections refuse review. Esc remains explicit cancellation.
+
+
+Configured analysis operator workflow (software/null output): after a fresh writer
+`grant`, use `calibrate start`, `confirm`, `release-input`; wait for at least 50
+source windows, then review/confirm `calibrate finish`. Wait for Lux to report
+ready. Review/confirm `auto enter`, select exact fixture IDs, then review/confirm
+`auto grant 500 2000` (50% intensity cap, 2000ms maximum). No grant renews
+automatically. `auto revoke` reviews leaving AUTO for ASSIST; the retained look
+may remain. Changing source/calibration, lease loss or expiry requires a fresh
+explicit grant. A stale review refuses and requires a new review; no intent is
+silently replayed. Programmer zero and Hold retain their owner-defined priority.
+
+Native K/L review calibration start/finish; A reviews AUTO entry; T opens the
+selected-fixture cap-percent/TTL-ms editor; X reviews revoke/ASSIST exit. Enter
+reviews, release Enter, inspect every material line, then Enter confirms. The
+Health page shows source identity, current calibration/confidence, grant scope,
+cap/expiry and retained contribution provenance independently. These controls do
+not arm DMX or establish physical output.

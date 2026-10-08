@@ -480,6 +480,14 @@ impl ApplicationHandler for App {
                                 "p" => self.action(Semantic::Preview),
                                 "b" => self.action(Semantic::Blackout),
                                 "m" => self.action(Semantic::Mode),
+                                "k" => self.action(Semantic::Calibrate(false)),
+                                "l" => self.action(Semantic::Calibrate(true)),
+                                "a" => self.action(Semantic::AutoEnter),
+                                "t" => {
+                                    self.semantic_editing = true;
+                                    self.action(Semantic::AutoGrant);
+                                }
+                                "x" => self.action(Semantic::AutoRevoke),
                                 "d" => self.action(Semantic::Action(Action::Deselect)),
                                 _ => {}
                             }

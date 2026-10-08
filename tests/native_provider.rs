@@ -493,3 +493,311 @@ fn actual_role_timeout_fences_generation_and_led_delivery() {
     assert!(monitor.state.lock().unwrap().notice.contains("500ms"));
     drop(monitor);
 }
+
+#[test]
+#[ignore = "explicit configured GigPies/Lux/topology/role artifacts; synthetic null output only"]
+fn configured_analysis_calibration_scoped_auto_and_source_loss() {
+    let source_bin =
+        PathBuf::from(std::env::var("GP_ANALYSIS_PROVIDER").expect("configured producer"));
+    let topology = PathBuf::from(std::env::var("GP_ANALYSIS_TOPOLOGY").expect("owner topology"));
+    let lux = PathBuf::from(std::env::var("GP_LUX_PROVIDER").expect("configured Lux"));
+    let broker = PathBuf::from(std::env::var("GP_ROLE_BROKER").expect("role broker"));
+    let mut scope = Scope::new();
+    let source = scope.dir("source");
+    let owner = scope.dir("lux");
+    let roles = scope.dir("roles");
+    let corpus: Value =
+        serde_json::from_str(include_str!("fixtures/lx05/v2/configured.json")).unwrap();
+    let config = scope.directory.join("config.json");
+    let mapping = scope.directory.join("mapping.json");
+    std::fs::write(&config, serde_json::to_vec(&corpus["config"]).unwrap()).unwrap();
+    std::fs::write(
+        &mapping,
+        serde_json::to_vec(&json!({"version":1,"inputs":corpus["config"]["analysis"]["inputs"]}))
+            .unwrap(),
+    )
+    .unwrap();
+    let show = corpus["config"]["show_id"].as_str().unwrap();
+    let start_source = |epoch: &str| {
+        Command::new(&source_bin)
+            .args([
+                "--directory",
+                source.to_str().unwrap(),
+                "--show",
+                show,
+                "--epoch",
+                epoch,
+                "--synthetic-source",
+                "fouraux",
+                "--topology",
+                topology.to_str().unwrap(),
+                "--analysis-map",
+                mapping.to_str().unwrap(),
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap()
+    };
+    scope.children.push(start_source("9"));
+    wait(|| source.join("analysis.sock").exists());
+    scope.children.push(
+        Command::new(&lux)
+            .args([
+                "--synthetic-private-dir",
+                owner.to_str().unwrap(),
+                "--durable",
+                "--config",
+                config.to_str().unwrap(),
+                "--analysis",
+                source.join("analysis.sock").to_str().unwrap(),
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap(),
+    );
+    wait(|| owner.join("lux.sock").exists());
+    let worker = Worker::spawn_with_role(
+        owner.join("lux.sock"),
+        show.into(),
+        1,
+        Some(lighting_config(broker, roles, "0")),
+    );
+    wait(|| {
+        let v = worker.view.lock().unwrap();
+        v.role_live
+            && v.inventory
+                .as_ref()
+                .is_some_and(|i| !i["analysis"]["source_identity"].is_null())
+    });
+    send(&worker, Semantic::EnterUp);
+    send(&worker, Semantic::Grant);
+    send(&worker, Semantic::Action(Action::Select(vec![1])));
+    let desk_index = if let Ok(executable) = std::env::var("GP_DESK_READONLY_EXECUTABLE") {
+        let expected =
+            std::env::var("GP_DESK_READONLY_SHA256").expect("exact Desk executable hash");
+        let sum = Command::new("sha256sum").arg(&executable).output().unwrap();
+        assert!(sum.status.success());
+        assert_eq!(
+            String::from_utf8(sum.stdout)
+                .unwrap()
+                .split_whitespace()
+                .next()
+                .unwrap(),
+            expected
+        );
+        let output = scope.directory.join("coexist.ppm");
+        let index = scope.children.len();
+        scope.children.push(
+            Command::new(executable)
+                .args([
+                    "--headless",
+                    source.join("audio.sock").to_str().unwrap(),
+                    show,
+                    "9",
+                    "coexist-readonly",
+                    "foh",
+                    output.to_str().unwrap(),
+                    "--dynamic",
+                ])
+                .stdin(Stdio::null())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::inherit())
+                .spawn()
+                .unwrap(),
+        );
+        Some(index)
+    } else {
+        None
+    };
+    send(&worker, Semantic::Calibrate(false));
+    confirm(&worker);
+    wait(|| {
+        worker.view.lock().unwrap().inventory.as_ref().unwrap()["analysis"]["calibration_windows"]
+            .as_u64()
+            .unwrap_or(0)
+            >= 60
+    });
+    send(&worker, Semantic::EnterUp);
+    send(&worker, Semantic::Calibrate(true));
+    confirm(&worker);
+    wait(|| {
+        worker.view.lock().unwrap().inventory.as_ref().unwrap()["analysis"]["state"] == "ready"
+    });
+    send(&worker, Semantic::EnterUp);
+    send(&worker, Semantic::AutoEnter);
+    confirm(&worker);
+    send(&worker, Semantic::EnterUp);
+    send(&worker, Semantic::AutoGrant);
+    send(&worker, Semantic::Action(Action::Text("50 2000".into())));
+    send(&worker, Semantic::Action(Action::Confirm));
+    let reviewed = worker.view.lock().unwrap().clone();
+    assert!(
+        reviewed
+            .review_text
+            .iter()
+            .any(|line| line.contains("front"))
+    );
+    assert!(
+        reviewed
+            .review_text
+            .iter()
+            .any(|line| line.contains("2000"))
+    );
+    confirm(&worker);
+    wait(|| {
+        worker.view.lock().unwrap().inventory.as_ref().unwrap()["analysis"]["automatic_layer"]["values"].as_array().is_some_and(|vs|vs.iter().any(|v|v["fixture"]=="front" && v["source"]=="analysis-active"))
+    });
+    let active = worker.view.lock().unwrap().inventory.clone().unwrap();
+    assert_eq!(active["analysis"]["grant"]["fixtures"], json!(["front"]));
+    let back = active["snapshot"]["fixtures"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["fixture"] == "back")
+        .unwrap();
+    assert!(
+        back["attributes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .all(|a| a["resolved"] == 0)
+    );
+    // The bounded grant expires without automatic renewal while the source stays live.
+    wait(|| worker.view.lock().unwrap().inventory.as_ref().unwrap()["analysis"]["grant"].is_null());
+    assert_eq!(
+        worker.view.lock().unwrap().inventory.as_ref().unwrap()["analysis"]["state"],
+        "ready"
+    );
+    send(&worker, Semantic::EnterUp);
+    send(&worker, Semantic::AutoGrant);
+    send(&worker, Semantic::Action(Action::Text("50 2000".into())));
+    send(&worker, Semantic::Action(Action::Confirm));
+    confirm(&worker);
+    wait(|| {
+        worker.view.lock().unwrap().inventory.as_ref().unwrap()["analysis"]["automatic_layer"]["values"].as_array().is_some_and(|vs| vs.iter().any(|v| v["fixture"] == "front" && v["source"] == "analysis-active"))
+    });
+    scope.children[0].kill().unwrap();
+    scope.children[0].wait().unwrap();
+    wait(|| {
+        let v = worker.view.lock().unwrap();
+        let a = &v.inventory.as_ref().unwrap()["analysis"];
+        a["state"] == "absent" && a["grant"].is_null()
+    });
+    let retained =
+        worker.view.lock().unwrap().inventory.as_ref().unwrap()["analysis"]["automatic_layer"]
+            .clone();
+    assert!(
+        retained["values"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|v| v["fixture"] == "front"
+                && v["provenance"]["source_identity"]["source_epoch"] == "9")
+    );
+    // These private endpoints belong to the exited child; never unlink a live owner.
+    for name in ["audio.sock", "analysis.sock"] {
+        let path = source.join(name);
+        if path.exists() {
+            std::fs::remove_file(path).unwrap();
+        }
+    }
+    scope.children.push(start_source("10"));
+    wait(|| {
+        worker.view.lock().unwrap().inventory.as_ref().unwrap()["analysis"]["source_epoch"] == "10"
+    });
+    let rebound = worker.view.lock().unwrap().inventory.clone().unwrap();
+    assert!(rebound["analysis"]["grant"].is_null());
+    assert_ne!(rebound["analysis"]["state"], "ready");
+    assert_eq!(rebound["analysis"]["automatic_layer"], retained);
+    send(&worker, Semantic::EnterUp);
+    edit(&worker, "0");
+    send(&worker, Semantic::EnterUp);
+    send(&worker, Semantic::Action(Action::ClearHold));
+    confirm(&worker);
+    let held = worker.view.lock().unwrap().inventory.clone().unwrap();
+    let front = held["snapshot"]["fixtures"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .find(|f| f["fixture"] == "front")
+        .unwrap();
+    assert_eq!(front["attributes"][0]["resolved"], 0);
+    assert_eq!(front["attributes"][0]["source"], "hold");
+    send(&worker, Semantic::EnterUp);
+    send(&worker, Semantic::AutoRevoke);
+    confirm(&worker);
+    assert_eq!(
+        worker.view.lock().unwrap().inventory.as_ref().unwrap()["mode"],
+        "assist"
+    );
+    send(&worker, Semantic::EnterUp);
+    let before = worker.view.lock().unwrap().completed;
+    worker.enqueue("checkpoint".into()).unwrap();
+    wait(|| worker.view.lock().unwrap().completed > before);
+    assert!(worker.view.lock().unwrap().command_error.is_none());
+    confirm(&worker);
+    if let Some(index) = desk_index {
+        use std::io::Read;
+        wait(|| scope.children[index].try_wait().unwrap().is_some());
+        assert!(scope.children[index].wait().unwrap().success());
+        let mut stdout = String::new();
+        scope.children[index]
+            .stdout
+            .take()
+            .unwrap()
+            .take(1_048_576)
+            .read_to_string(&mut stdout)
+            .unwrap();
+        assert!(stdout.contains("fresh=true"), "{stdout}");
+        let output = scope.directory.join("coexist.ppm");
+        let bytes = std::fs::read(&output).unwrap();
+        assert!(bytes.starts_with(b"P6\n1920 1080\n255\n"));
+        let hash = Command::new("sha256sum").arg(&output).output().unwrap();
+        println!(
+            "Desk coexistence fresh=true PPM {}",
+            String::from_utf8(hash.stdout)
+                .unwrap()
+                .split_whitespace()
+                .next()
+                .unwrap()
+        );
+    }
+    drop(worker);
+    scope.children[1].kill().unwrap();
+    scope.children[1].wait().unwrap();
+    std::fs::remove_file(owner.join("lux.sock")).unwrap();
+    scope.children.push(
+        Command::new(&lux)
+            .args([
+                "--synthetic-private-dir",
+                owner.to_str().unwrap(),
+                "--durable",
+                "--config",
+                config.to_str().unwrap(),
+                "--analysis",
+                source.join("analysis.sock").to_str().unwrap(),
+            ])
+            .stdin(Stdio::null())
+            .stdout(Stdio::null())
+            .stderr(Stdio::inherit())
+            .spawn()
+            .unwrap(),
+    );
+    let mut recovered = None;
+    wait(|| {
+        recovered =
+            shr_lightdesk::lux_operator::Operator::connect(&owner.join("lux.sock"), show, 2).ok();
+        recovered.is_some()
+    });
+    let recovered = recovered.unwrap();
+    use shr_lightdesk::lux_control::LightingAuthority;
+    let i = recovered.client.authority.snapshot().unwrap();
+    assert_eq!(i["snapshot"]["epoch"], "2");
+    assert!(i["analysis"]["grant"].is_null());
+    assert_eq!(i["mode"], "manual");
+    assert_eq!(i["snapshot"]["fixtures"][0]["attributes"][0]["resolved"], 0);
+}

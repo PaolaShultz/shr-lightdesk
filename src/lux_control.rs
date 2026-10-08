@@ -321,6 +321,63 @@ impl LuxAuthority {
                             self.preview = None;
                             self.preview_until = None;
                         }
+                        "analysis_calibrate" | "analysis_grant" => {
+                            schema(&v["body"], &["analysis"])?;
+                            adapter::validate_analysis_result(&v["body"]["analysis"], snapshot)?;
+                            let a = &v["body"]["analysis"];
+                            if command["action"] == "analysis_grant" {
+                                let expected_expiry = codec::counter(&v["effective_tick"])?
+                                    .checked_add(
+                                        command["ttl_ms"].as_u64().ok_or("grant TTL")? / 10,
+                                    )
+                                    .ok_or("grant expiry overflow")?;
+                                if a["grant"]["fixtures"] != command["fixtures"]
+                                    || a["grant"]["cap"] != command["cap"]
+                                    || a["grant"]["writer"] != p.envelope["writer"]
+                                    || a["grant"]["lease"] != p.envelope["lease"]
+                                    || codec::counter(&a["grant"]["expiry_tick"])?
+                                        != expected_expiry
+                                    || a["grant"]["issue_revision"] != v["revision"]
+                                    || crate::lux_operator::analysis_review_basis(
+                                        &json!({"analysis":a}),
+                                        command,
+                                    ) != crate::lux_operator::analysis_review_basis(
+                                        snapshot, command,
+                                    )
+                                {
+                                    return Err("analysis grant acknowledgment identity".into());
+                                }
+                            } else {
+                                let expected_state = if command["phase"] == "start" {
+                                    "calibrating"
+                                } else {
+                                    "settling"
+                                };
+                                let old_generation =
+                                    codec::counter(&snapshot["analysis"]["generation"])?;
+                                let expected_generation = if command["phase"] == "start" {
+                                    old_generation.saturating_add(1)
+                                } else {
+                                    old_generation
+                                };
+                                if codec::counter(&a["generation"])? != expected_generation
+                                    || (command["phase"] == "start"
+                                        && (a["calibration_windows"] != 0
+                                            || !a["calibration_generation"].is_null()))
+                                    || (command["phase"] == "finish"
+                                        && a["calibration_generation"] != a["generation"])
+                                {
+                                    return Err("calibration acknowledgment generation".into());
+                                }
+                                if a["state"] != expected_state
+                                    || !a["grant"].is_null()
+                                    || a["source_identity"]
+                                        != snapshot["analysis"]["source_identity"]
+                                {
+                                    return Err("calibration acknowledgment identity".into());
+                                }
+                            }
+                        }
                         "checkpoint" => {
                             schema(&v["body"], &["application", "durability", "physical"])?;
                             exact(&v["body"]["application"], "checkpointed")?;
@@ -395,6 +452,10 @@ impl LightingAuthority for LuxAuthority {
         if kind == "command" {
             schema(&body, &["scope", "command"])?;
             exact(&body["scope"], "lighting-control")?;
+            crate::lux_operator::validate_analysis_command(
+                self.cache.snapshot().unwrap(),
+                &body["command"],
+            )?;
             if body["command"]["action"] == "release_commit"
                 && (self.preview.as_ref() != Some(&body["command"]["token"])
                     || self.preview_until.is_none_or(|until| now >= until))
@@ -768,9 +829,24 @@ pub mod local {
             command: Value,
             revision: u64,
             lease: &str,
+            analysis_basis: Option<&Value>,
         ) -> Result<Value> {
             self.maintain()?;
+            if analysis_basis.is_some() {
+                self.refresh()?;
+            }
             self.authority.check_review(revision, lease, self.now())?;
+            if crate::lux_operator::analysis_review_basis(
+                self.authority
+                    .snapshot()
+                    .ok_or("no fresh analysis snapshot")?,
+                &command,
+            )
+            .as_ref()
+                != analysis_basis
+            {
+                return Err("analysis source/calibration changed since review".into());
+            }
             self.request(
                 "command",
                 json!({"scope":"lighting-control","command":command}),

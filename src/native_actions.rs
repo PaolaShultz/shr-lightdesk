@@ -18,6 +18,10 @@ pub enum Semantic {
     Preview,
     OpenGo,
     Mode,
+    Calibrate(bool),
+    AutoEnter,
+    AutoGrant,
+    AutoRevoke,
     Edit,
     Blackout,
     Bank(i32),
@@ -31,12 +35,14 @@ pub enum Semantic {
 pub enum Editor {
     Existing(Draft),
     Go(String),
+    AutoGrant(String),
 }
 impl Editor {
     pub fn text(&self) -> String {
         match self {
             Self::Existing(Draft::Attribute { text, .. } | Draft::Record { text, .. })
-            | Self::Go(text) => text.clone(),
+            | Self::Go(text)
+            | Self::AutoGrant(text) => text.clone(),
             Self::Existing(Draft::BlackoutOff) => String::new(),
         }
     }
@@ -178,6 +184,22 @@ impl Workflow {
                 op.line("grant").map(|(_, s)| s)
             }
             Semantic::OpenGo => self.begin(op, Editor::Go(String::new())),
+            Semantic::Calibrate(finish) => {
+                self.discard(op)?;
+                let command = op.analysis_command(if finish { "finish" } else { "start" }, 0, 0)?;
+                op.review(command)
+            }
+            Semantic::AutoEnter | Semantic::AutoRevoke => {
+                let phase = if matches!(event, Semantic::AutoEnter) {
+                    "auto"
+                } else {
+                    "revoke"
+                };
+                self.discard(op)?;
+                let command = op.analysis_command(phase, 0, 0)?;
+                op.review(command)
+            }
+            Semantic::AutoGrant => self.begin(op, Editor::AutoGrant(String::new())),
             Semantic::Mode => {
                 self.discard(op)?;
                 let mode = if op
@@ -297,7 +319,8 @@ impl Workflow {
                         Some(Editor::Existing(
                             Draft::Attribute { text, .. } | Draft::Record { text, .. },
                         ))
-                        | Some(Editor::Go(text)) => text,
+                        | Some(Editor::Go(text))
+                        | Some(Editor::AutoGrant(text)) => text,
                         _ => return Err("no detached draft".into()),
                     };
                     if field.len() + text.len() > 128 {
@@ -311,7 +334,8 @@ impl Workflow {
                         Some(Editor::Existing(
                             Draft::Attribute { text, .. } | Draft::Record { text, .. },
                         ))
-                        | Some(Editor::Go(text)) => {
+                        | Some(Editor::Go(text))
+                        | Some(Editor::AutoGrant(text)) => {
                             text.pop();
                         }
                         _ => {}
@@ -384,6 +408,17 @@ impl Workflow {
                             }) => {
                                 adapter::id(&json!(text))?;
                                 json!({"action":if replace{"update"}else{"record"},"kind":if palette{"palette"}else{"cue"},"id":text})
+                            }
+                            Editor::AutoGrant(text) => {
+                                let fields: Vec<_> = text.split_whitespace().collect();
+                                if fields.len() != 2 {
+                                    return Err("AUTO draft: enter CAP_PERCENT TTL_MS (10..2000ms in 10ms steps)".into());
+                                }
+                                op.analysis_command(
+                                    "grant",
+                                    typed_value(fields[0])?,
+                                    fields[1].parse().map_err(|_| "TTL integer milliseconds")?,
+                                )?
                             }
                             Editor::Go(text) => {
                                 let fields: Vec<_> = text.split_whitespace().collect();

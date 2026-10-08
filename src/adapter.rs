@@ -311,7 +311,30 @@ fn bounded(v: &Value, max: i32) -> Result<()> {
     }
     Ok(())
 }
-fn analysis_descriptor(v: &Value) -> Result<()> {
+fn analysis_binding(v: &Value) -> Result<()> {
+    schema(v, &["version", "inputs"])?;
+    if integer(&v["version"])? != 2 {
+        return Err("analysis binding version".into());
+    }
+    let inputs = array(&v["inputs"], 4)?;
+    if inputs.len() != 4 {
+        return Err("four analysis inputs required".into());
+    }
+    let mut seen = BTreeSet::new();
+    for input in inputs {
+        let input = text(input)?;
+        let n = input
+            .strip_prefix("input-")
+            .and_then(|s| s.parse::<u16>().ok())
+            .filter(|n| *n > 0)
+            .ok_or("analysis logical input")?;
+        if input != format!("input-{n:02}") || !seen.insert(input) {
+            return Err("analysis canonical distinct inputs".into());
+        }
+    }
+    Ok(())
+}
+fn analysis_descriptor(v: &Value, binding: Option<&Value>) -> Result<()> {
     schema(
         v,
         &[
@@ -332,13 +355,20 @@ fn analysis_descriptor(v: &Value) -> Result<()> {
     )?;
     for (k, value) in [
         ("contract", "C-ANALYSIS"),
-        ("subscription", "lux.aux.v1"),
+        (
+            "subscription",
+            if binding.is_some() {
+                "lux.aux.v2"
+            } else {
+                "lux.aux.v1"
+            },
+        ),
         ("tap", "raw-pre-fader"),
         ("clock", "linux-clock-monotonic-ms"),
     ] {
         exact(&v[k], value)?;
     }
-    if integer(&v["version"])? != 1
+    if integer(&v["version"])? != if binding.is_some() { 2 } else { 1 }
         || integer(&v["sample_rate"])? != 48000
         || integer(&v["stream"])? != 3
     {
@@ -352,10 +382,18 @@ fn analysis_descriptor(v: &Value) -> Result<()> {
     ] {
         counter(&v[k])?;
     }
+    if binding.is_some()
+        && (counter(&v["map_revision"])? == 0 || counter(&v["calibration_revision"])? == 0)
+    {
+        return Err("configured descriptor revision zero".into());
+    }
     if v["sources"] != serde_json::json!(["kick", "bass", "guitar-1", "guitar-2"]) {
         return Err("analysis ordered sources".into());
     }
-    if v["inputs"] != serde_json::json!(["input-01", "input-02", "input-03", "input-04"])
+    if v["inputs"]
+        != binding
+            .map(|b| b["inputs"].clone())
+            .unwrap_or_else(|| serde_json::json!(["input-01", "input-02", "input-03", "input-04"]))
         || counter(&v["source_epoch"])? == 0
     {
         return Err("analysis input/epoch identity".into());
@@ -371,36 +409,45 @@ fn analysis_window(v: &Value, descriptor: &Value) -> Result<()> {
     }
     Ok(())
 }
-fn analysis_status(a: &Value, p: &Patch) -> Result<BTreeMap<String, (i32, String)>> {
-    schema(
-        a,
-        &[
-            "analysis_version",
-            "state",
-            "reason",
-            "source_identity",
-            "source_epoch",
-            "map_revision",
-            "calibration_revision",
-            "sources",
-            "source_window_range",
-            "source_age_ms",
-            "losses",
-            "generation",
-            "calibration_generation",
-            "calibration_windows",
-            "confidence",
-            "rms_millionths",
-            "energy_millionths",
-            "beat",
-            "downbeat",
-            "harmony",
-            "proposal",
-            "grant",
-            "automatic_layer",
-            "held_reason",
-        ],
-    )?;
+fn analysis_status(
+    a: &Value,
+    p: &Patch,
+    binding: Option<&Value>,
+) -> Result<BTreeMap<String, (i32, String)>> {
+    let mut keys = vec![
+        "analysis_version",
+        "state",
+        "reason",
+        "source_identity",
+        "source_epoch",
+        "map_revision",
+        "calibration_revision",
+        "sources",
+        "source_window_range",
+        "source_age_ms",
+        "losses",
+        "generation",
+        "calibration_generation",
+        "calibration_windows",
+        "confidence",
+        "rms_millionths",
+        "energy_millionths",
+        "beat",
+        "downbeat",
+        "harmony",
+        "proposal",
+        "grant",
+        "automatic_layer",
+        "held_reason",
+    ];
+    if let Some(binding) = binding {
+        keys.push("analysis_binding");
+        analysis_binding(binding)?;
+        if &a["analysis_binding"] != binding {
+            return Err("analysis binding identity".into());
+        }
+    }
+    schema(a, &keys)?;
     exact(&a["analysis_version"], "lux.analysis.v1")?;
     let state = text(&a["state"])?;
     if !matches!(
@@ -429,7 +476,7 @@ fn analysis_status(a: &Value, p: &Patch) -> Result<BTreeMap<String, (i32, String
     }
     let descriptor = &a["source_identity"];
     if !descriptor.is_null() {
-        analysis_descriptor(descriptor)?;
+        analysis_descriptor(descriptor, binding)?;
         for k in [
             "source_epoch",
             "map_revision",
@@ -581,7 +628,7 @@ fn analysis_status(a: &Value, p: &Patch) -> Result<BTreeMap<String, (i32, String
                 ],
             )?;
             exact(&provenance["analysis_version"], "lux.analysis.v1")?;
-            analysis_descriptor(&provenance["source_identity"])?;
+            analysis_descriptor(&provenance["source_identity"], binding)?;
             analysis_window(
                 &provenance["source_window_range"],
                 &provenance["source_identity"],
@@ -619,11 +666,14 @@ fn inventory(v: &Value, expected_show: &str, epoch: u64, revision: u64) -> Resul
         "snapshot",
         "snapshot_budget",
     ];
-    let analysis = v.get("wire_schema").is_some_and(|s| s == "lx05-v1");
+    let configured = v["wire_schema"] == "lx05-v2";
+    let analysis = configured || v.get("wire_schema").is_some_and(|s| s == "lx05-v1");
     let timed = match v.get("wire_schema") {
         None => false,
         Some(schema) if matches!(text(schema)?, "lx04-v1" | "lx04-durable-v1") => true,
-        Some(schema) if text(schema)? == "lx05-v1" => v.get("release").is_some(),
+        Some(schema) if matches!(text(schema)?, "lx05-v1" | "lx05-v2") => {
+            v.get("release").is_some()
+        }
         Some(_) => return Err("unknown wire schema".into()),
     };
     let durable = v.get("wire_schema").is_some_and(|s| s == "lx04-durable-v1")
@@ -642,6 +692,10 @@ fn inventory(v: &Value, expected_show: &str, epoch: u64, revision: u64) -> Resul
     }
     if analysis {
         keys.push("analysis");
+    }
+    if configured {
+        keys.push("analysis_binding");
+        analysis_binding(&v["analysis_binding"])?;
     }
     schema(v, &keys)?;
     if durable {
@@ -711,7 +765,11 @@ fn inventory(v: &Value, expected_show: &str, epoch: u64, revision: u64) -> Resul
         integer(&l["fixtures"])? as usize,
     )?;
     let automatic = if analysis {
-        analysis_status(&v["analysis"], &p)?
+        analysis_status(
+            &v["analysis"],
+            &p,
+            configured.then_some(&v["analysis_binding"]),
+        )?
     } else {
         BTreeMap::new()
     };
@@ -1576,4 +1634,15 @@ pub(crate) fn advertised_value(
         return Err("advertised value range".into());
     }
     Ok(n)
+}
+
+/// Command results carry owner analysis state independently of a complete inventory.
+pub(crate) fn validate_analysis_result(a: &Value, inventory: &Value) -> Result<()> {
+    let p = patch(&inventory["patch"], &inventory["capability_metadata"], 32)?;
+    analysis_status(
+        a,
+        &p,
+        (inventory["wire_schema"] == "lx05-v2").then_some(&inventory["analysis_binding"]),
+    )?;
+    Ok(())
 }

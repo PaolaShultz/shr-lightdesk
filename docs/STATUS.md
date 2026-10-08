@@ -1,5 +1,24 @@
 # Implementation status
 
+## Task0020 configured analysis and operator workflow — 2026-10-08
+
+Implemented configured `lx05-v2` strict bindings, current and retained provenance,
+explicit calibration start/finish, selected-fixture intensity cap/TTL grants,
+reviewed AUTO entry and ASSIST exit/revoke. Native K/L/A/T/X use the same
+semantic authority path as the headless commands. Source/calibration identity is
+frozen into each material review independently of the engine revision; changed
+identity refuses confirmation after maintenance. ACKs validate requested scope,
+cap, exact expiry, issue revision and source basis. Legacy LX05 v1 stays supported.
+
+Actual configured synthetic GigPies -> Lux -> semantic Lightdesk episode passed:
+17 logical inputs, nondefault bindings including input17, custom show/two fixtures,
+calibration, explicit scoped AUTO, unrelated fixture unchanged, source loss,
+retained provenance, fresh source epoch without automatic grant, programmer zero,
+Hold, explicit revoke and disarmed durable restart. Full current-source default/
+native gates and final independent review are recorded in the private task handoff.
+No physical output, display or controller acceptance is claimed.
+
+
 The native LD-02 software frontend, actual Lux snapshot/control client and
 read-only LX05 analysis compatibility are implemented and software-validated against
 accepted provider executables. Validation covers default/native builds, strict

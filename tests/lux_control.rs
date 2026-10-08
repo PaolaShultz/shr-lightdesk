@@ -137,6 +137,7 @@ fn context_changes_and_held_enter_cannot_commit_another_target() {
     let confirmation = Confirmation {
         command: json!({"action":"blackout","enabled":false}),
         material_lines: Vec::new(),
+        analysis_basis: None,
         context: 0,
         revision: 5,
         lease: "1".into(),
@@ -398,6 +399,7 @@ fn session_time_bound_and_enter_without_confirmation_fail_closed() {
         input.confirmation = Some(Confirmation {
             command: json!({"action":"blackout","enabled":false}),
             material_lines: Vec::new(),
+            analysis_basis: None,
             context: 0,
             revision: 0,
             lease: "1".into(),

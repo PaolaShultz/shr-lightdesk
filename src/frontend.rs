@@ -233,6 +233,7 @@ pub fn scene(v: &View, draft: &str, scroll: usize) -> Scene {
                     },
                     Editor::Existing(_) => "RECORD ID",
                     Editor::Go(_) => "GO: CUE PLAYBACK",
+                    Editor::AutoGrant(_) => "AUTO: CAP_PERCENT TTL_MS (10..2000)",
                 },
                 e.text()
             )
@@ -426,8 +427,25 @@ fn state_lines(v: &View) -> Vec<String> {
             scalar(&a["proposal"], "intensity")
         ));
         lines.push(
-            "Beat, downbeat and harmony unavailable. Analysis controls are read-only.".into(),
+            "Beat, downbeat and harmony unavailable. K/L calibrate start/finish; A enter AUTO; T grant cap/TTL; X revoke.".into(),
         );
+        lines.push(format!(
+            "Calibration {} windows / generation {} / source {} / refusal {}",
+            string(&a["calibration_windows"]),
+            string(&a["calibration_generation"]),
+            string(&a["state"]),
+            string(&a["reason"])
+        ));
+        if !a["grant"].is_null() {
+            lines.push(format!(
+                "AUTO grant fixtures {} / cap {} / at most 2 seconds, never renewed / expiry engine tick {}",
+                a["grant"]["fixtures"],
+                scalar(&a["grant"]["cap"], "intensity"),
+                string(&a["grant"]["expiry_tick"])
+            ));
+        } else {
+            lines.push("AUTO grant: none; explicit fresh reviewed grant required".into());
+        }
         if v.page == "health" {
             lines.push(format!(
                 "Current source epoch {} / frames {}..{} / calibration {} / age {} ms / losses {}",
@@ -587,6 +605,11 @@ pub fn review_lines(review: &Value) -> Vec<String> {
         "record" | "update" => out.push(format!("{} {} {} / {}",if action=="update" {"Update"} else {"Create"},string(&review["kind"]),string(&review["id"]),if action=="update" {"overwrite matching programmer targets; retain other stored values"} else {"existing identity will be refused"})),
         "go" => out.push(format!("GO cue {} into playback {}",string(&review["cue"]),string(&review["playback"]))),
         "blackout" => out.push(format!("Blackout {}",if review["enabled"]==true {"ON"} else {"OFF - output intent resumes"})),
+        "analysis_calibrate" => out.push(format!("Calibration {} / existing analysis grant revoked; source windows measured by Lux", string(&review["phase"]))),
+        "analysis_grant" => {
+            out.push(format!("Intensity only / cap {} / expires after {} ms / no automatic renewal", scalar(&review["cap"], "intensity"), review["ttl_ms"]));
+            if let Some(fixtures) = review["fixtures"].as_array() { for fixture in fixtures { out.push(format!("Fixture {} / programmer and Hold retain priority", string(fixture))); } }
+        }
         "mode" => out.push(format!("Mode {} / existing look retained",string(&review["mode"]).to_ascii_uppercase())),
         "master" => out.push(format!("Grand master destination {}",scalar(&review["level"],"intensity"))),
         "checkpoint" => out.push("Checkpoint current engine intended look for disarmed recovery; playback/grants/transitions do not resume".into()),
@@ -634,6 +657,23 @@ pub fn material_review_lines(
         out.extend(command_lines.last().cloned());
     } else {
         out.extend(command_lines);
+    }
+    if matches!(action, "analysis_calibrate" | "analysis_grant")
+        || (action == "mode" && command["mode"] == "auto")
+    {
+        let a = &inventory["analysis"];
+        out.push(format!(
+            "Source epoch {} / map {} / calibration {} / confidence {}",
+            string(&a["source_epoch"]),
+            string(&a["map_revision"]),
+            string(&a["calibration_generation"]),
+            scalar(&a["confidence"], "intensity")
+        ));
+        out.push(format!(
+            "Ordered source bindings {}",
+            a["source_identity"]["inputs"]
+        ));
+        out.push("Source loss, expiry, mode exit or changed calibration revokes the grant; retained look may remain. Physical output unknown.".into());
     }
     if matches!(action, "mode" | "master" | "blackout") {
         match action {
@@ -1019,6 +1059,11 @@ pub fn script_action(line: &str, view: &View) -> Result<Semantic, String> {
         ["@edit"] => Semantic::Edit,
         ["@go"] => Semantic::OpenGo,
         ["@mode"] => Semantic::Mode,
+        ["@calibrate", "start"] => Semantic::Calibrate(false),
+        ["@calibrate", "finish"] => Semantic::Calibrate(true),
+        ["@auto", "enter"] => Semantic::AutoEnter,
+        ["@auto", "grant"] => Semantic::AutoGrant,
+        ["@auto", "revoke"] => Semantic::AutoRevoke,
         ["@blackout"] => Semantic::Blackout,
         ["@preview"] => Semantic::Preview,
         ["@select", slot] => Semantic::Action(Action::Select(vec![

@@ -12,6 +12,7 @@ type Result<T> = std::result::Result<T, String>;
 #[derive(Clone, Debug)]
 pub struct Confirmation {
     pub command: Value,
+    pub analysis_basis: Option<Value>,
     /// Frozen operator material; the exact command/token remains untouched.
     pub material_lines: Vec<String>,
     pub context: u64,
@@ -135,6 +136,10 @@ impl Operator {
         self.input.invalidate()?;
         self.input.confirmation = Some(Confirmation {
             command: command.clone(),
+            analysis_basis: analysis_review_basis(
+                self.client.authority.snapshot().unwrap(),
+                &command,
+            ),
             material_lines: Vec::new(),
             context: self.input.generation,
             revision: self.client.authority.revision(),
@@ -194,6 +199,23 @@ impl Operator {
         }
         Ok(out.into())
     }
+    pub(crate) fn analysis_command(&self, phase: &str, cap: i32, ttl_ms: u64) -> Result<Value> {
+        let snapshot = self.client.authority.snapshot().ok_or("no snapshot")?;
+        let command = match phase {
+            "start" | "finish" => json!({"action":"analysis_calibrate","phase":phase}),
+            "grant" => {
+                json!({"action":"analysis_grant","fixtures":self.selected,"cap":cap,"ttl_ms":ttl_ms})
+            }
+            "auto" => json!({"action":"mode","mode":"auto"}),
+            "revoke" => json!({"action":"mode","mode":"assist"}),
+            _ => return Err("analysis operation".into()),
+        };
+        validate_analysis_command(snapshot, &command)?;
+        if snapshot.get("analysis").is_none() {
+            return Err("analysis capability unavailable".into());
+        }
+        Ok(command)
+    }
     fn preview(&mut self, attributes: &[&str]) -> Result<String> {
         if self.input.release_required {
             return Err("release/pickup required".into());
@@ -201,7 +223,7 @@ impl Operator {
         let snapshot = self.client.authority.snapshot().ok_or("no snapshot")?;
         if !matches!(
             snapshot["wire_schema"].as_str(),
-            Some("lx04-v1" | "lx04-durable-v1" | "lx05-v1")
+            Some("lx04-v1" | "lx04-durable-v1" | "lx05-v1" | "lx05-v2")
         ) || snapshot.get("release").is_none()
         {
             return Err("timed preview capability unavailable".into());
@@ -364,9 +386,12 @@ impl Operator {
                 )?;
                 let reviewed = reviewed.ok_or("no reviewed confirmation")?;
                 self.input.invalidate()?;
-                let reply =
-                    self.client
-                        .confirmed_command(command, reviewed.revision, &reviewed.lease)?;
+                let reply = self.client.confirmed_command(
+                    command,
+                    reviewed.revision,
+                    &reviewed.lease,
+                    reviewed.analysis_basis.as_ref(),
+                )?;
                 Self::check_reply(reply)?
             }
             ["touch", attribute, value] => {
@@ -429,6 +454,23 @@ impl Operator {
             }
             ["blackout", "on"] => self.command(json!({"action":"blackout","enabled":true}))?,
             ["blackout", "off"] => self.review(json!({"action":"blackout","enabled":false}))?,
+            ["calibrate", phase @ ("start" | "finish")] => {
+                let command = self.analysis_command(phase, 0, 0)?;
+                self.review(command)?
+            }
+            ["auto", "grant", cap, ttl] => {
+                let command = self.analysis_command(
+                    "grant",
+                    cap.parse().map_err(|_| "cap integer tenths")?,
+                    ttl.parse().map_err(|_| "TTL integer milliseconds")?,
+                )?;
+                self.review(command)?
+            }
+            ["auto", phase @ ("enter" | "revoke")] => {
+                let command =
+                    self.analysis_command(if *phase == "enter" { "auto" } else { "revoke" }, 0, 0)?;
+                self.review(command)?
+            }
             ["mode", mode @ ("manual" | "assist")] => {
                 self.command(json!({"action":"mode","mode":mode}))?
             }
@@ -442,7 +484,7 @@ impl Operator {
         Ok((true, output))
     }
 }
-pub const CONTROL_HELP: &str = "REAL LUX / logical null output; physical UNKNOWN\nstatus | grant | select STABLE_ID... | touch ATTRIBUTE INTEGER_TENTHS | touch-rgb R G B | touch-position PAN TILT\nrecord cue|palette ID | update cue|palette ID (review) | go CUE PLAYBACK | clearHold\npreview ATTRIBUTE... | release (exact reviewed engine token) | cancel | checkpoint (accepted durable capability only)\nmaster 0..1000 | blackout on|off (off review) | mode manual|assist\nconfirm (Enter down) | enter up | release-input | cancel | page stage|programmer|library|playbacks|health | focus lost | inputlost\nrefresh | disconnect | reconnect EPOCH | wait 0..2000 | quit\n";
+pub const CONTROL_HELP: &str = "REAL LUX / logical null output; physical UNKNOWN\nstatus | grant | select STABLE_ID... | touch ATTRIBUTE INTEGER_TENTHS | touch-rgb R G B | touch-position PAN TILT\nrecord cue|palette ID | update cue|palette ID (review) | go CUE PLAYBACK | clearHold\npreview ATTRIBUTE... | release (exact reviewed engine token) | cancel | checkpoint (accepted durable capability only)\nNative K/L calibration start/finish; A AUTO entry; T cap-percent/TTL editor; X revoke to ASSIST\nmaster 0..1000 | blackout on|off (off review) | mode manual|assist\ncalibrate start|finish (review) | auto enter (review) | auto grant CAP_TENTHS TTL_MS (review selected fixtures, 10..2000ms) | auto revoke (review ASSIST exit)\nconfirm (Enter down) | enter up | release-input | cancel | page stage|programmer|library|playbacks|health | focus lost | inputlost\nrefresh | disconnect | reconnect EPOCH | wait 0..2000 | quit\n";
 
 /// Bounded script or stdin session. Poll stdin so lease renewal continues while idle.
 pub fn run(path: &Path, show: &str, epoch: u64, script: Option<&Path>) -> Result<()> {
@@ -548,4 +590,86 @@ pub fn run(path: &Path, show: &str, epoch: u64, script: Option<&Path>) -> Result
     } else {
         Ok(())
     }
+}
+
+/// Validate analysis capabilities and exact bounded scope before preparing or sending intent.
+pub fn validate_analysis_command(snapshot: &Value, command: &Value) -> Result<()> {
+    let action = command["action"].as_str().unwrap_or("");
+    if !matches!(action, "analysis_calibrate" | "analysis_grant")
+        && !(action == "mode" && command["mode"] == "auto")
+    {
+        return Ok(());
+    }
+    if !matches!(
+        snapshot["wire_schema"].as_str(),
+        Some("lx05-v1" | "lx05-v2")
+    ) || snapshot["applied_auto"] != "explicit_bounded_intensity_grant"
+    {
+        return Err("analysis capability unavailable".into());
+    }
+    let a = &snapshot["analysis"];
+    if action == "analysis_calibrate" {
+        adapter::schema(command, &["action", "phase"])?;
+        if !matches!(command["phase"].as_str(), Some("start" | "finish")) {
+            return Err("calibration phase".into());
+        }
+        if a["source_identity"].is_null() || a["source_age_ms"].as_u64().is_none_or(|age| age > 100)
+        {
+            return Err("fresh analysis source required".into());
+        }
+        if command["phase"] == "finish"
+            && (a["state"] != "calibrating" || a["calibration_windows"].as_u64().unwrap_or(0) < 50)
+        {
+            return Err("calibration not ready: at least 50 source windows required".into());
+        }
+    } else if action == "analysis_grant" {
+        adapter::schema(command, &["action", "fixtures", "cap", "ttl_ms"])?;
+        if snapshot["mode"] != "auto" || a["state"] != "ready" || a["confidence"] != 1000 {
+            return Err("AUTO mode and ready calibrated analysis required".into());
+        }
+        adapter::level(&command["cap"])?;
+        let ttl = command["ttl_ms"].as_u64().ok_or("TTL milliseconds")?;
+        if ttl == 0 || ttl > 2000 || !ttl.is_multiple_of(10) {
+            return Err("TTL must be 10..2000ms in 10ms steps".into());
+        }
+        let fixtures = command["fixtures"].as_array().ok_or("fixture scope")?;
+        if fixtures.is_empty() || fixtures.len() > 32 {
+            return Err("select 1..32 fixtures".into());
+        }
+        let mut seen = BTreeSet::new();
+        for fixture in fixtures {
+            let fid = fixture.as_str().ok_or("fixture identity")?;
+            if !seen.insert(fid) {
+                return Err("duplicate fixture".into());
+            }
+            let capability = snapshot["capability_metadata"]
+                .as_array()
+                .and_then(|all| all.iter().find(|f| f["fixture"] == fid))
+                .and_then(|f| f["attributes"].as_array())
+                .and_then(|attrs| attrs.iter().find(|a| a["attribute"] == "intensity"))
+                .ok_or("selected fixture intensity unavailable")?;
+            let cap = adapter::integer(&command["cap"])?;
+            if cap < adapter::integer(&capability["min"])?
+                || cap > adapter::integer(&capability["max"])?
+            {
+                return Err("cap outside fixture range".into());
+            }
+        }
+    }
+    Ok(())
+}
+
+/// Identity relevant to a reviewed analysis operation; moving frame/age counters are not identities.
+pub fn analysis_review_basis(inventory: &Value, command: &Value) -> Option<Value> {
+    if !matches!(
+        command["action"].as_str(),
+        Some("analysis_calibrate" | "analysis_grant")
+    ) && !(command["action"] == "mode" && command["mode"] == "auto")
+    {
+        return None;
+    }
+    let a = &inventory["analysis"];
+    Some(
+        json!({"source_identity":a["source_identity"],"generation":a["generation"],"calibration_generation":a["calibration_generation"],"binding":a["analysis_binding"]}),
+    )
 }

@@ -214,3 +214,68 @@ fn untimed_lx05_keeps_strict_static_and_durable_capability_bounds() {
         );
     }
 }
+
+#[test]
+fn configured_owner_corpus_decodes_and_rejects_binding_or_provenance_drift() {
+    let corpus: Value =
+        serde_json::from_str(include_str!("fixtures/lx05/v2/configured.json")).unwrap();
+    fn check(v: &Value, count: &mut usize) {
+        if v["wire_schema"] == "lx05-v2" && v.get("snapshot").is_some() {
+            let mut c = LuxClient::new(
+                v["snapshot"]["show_id"].as_str().unwrap(),
+                v["snapshot"]["epoch"].as_str().unwrap().parse().unwrap(),
+            )
+            .unwrap();
+            c.ingest(&serde_json::to_vec(&page(v, 1)).unwrap(), 0)
+                .unwrap();
+            *count += 1;
+            for mutation in 0..5 {
+                let mut bad = v.clone();
+                match mutation {
+                    0 => bad["analysis_binding"]["inputs"][0] = json!("input-017"),
+                    1 => bad["analysis"]["analysis_binding"]["inputs"][0] = json!("input-16"),
+                    2 => bad["analysis_binding"]["inputs"][0] = json!("input-03"),
+                    3 => bad["wire_schema"] = json!("lx05-v1"),
+                    _ => bad["analysis_binding"]["extra"] = json!(true),
+                }
+                assert!(
+                    c.ingest(&serde_json::to_vec(&page(&bad, 2)).unwrap(), 1)
+                        .is_err(),
+                    "mutation {mutation}"
+                );
+            }
+        } else if let Some(o) = v.as_object() {
+            for value in o.values() {
+                check(value, count);
+            }
+        }
+    }
+    let mut count = 0;
+    check(&corpus, &mut count);
+    assert!(count >= 4, "{count}");
+    // Each actual corpus entry above is validated, including source-absent provenance.
+}
+
+#[test]
+fn configured_retained_provenance_checks_mapping_without_current_source() {
+    let corpus: Value =
+        serde_json::from_str(include_str!("fixtures/lx05/v2/configured.json")).unwrap();
+    let good = corpus["source_absent_retained"].clone();
+    decode(&good);
+    for n in 0..4 {
+        let mut bad = good.clone();
+        let d =
+            &mut bad["analysis"]["automatic_layer"]["values"][0]["provenance"]["source_identity"];
+        match n {
+            0 => d["inputs"][0] = json!("input-16"),
+            1 => d["version"] = json!(1),
+            2 => d["subscription"] = json!("lux.aux.v1"),
+            _ => d["map_revision"] = json!("0"),
+        }
+        let mut c = LuxClient::new(SHOW, 9).unwrap();
+        assert!(
+            c.ingest(&serde_json::to_vec(&page(&bad, 1)).unwrap(), 0)
+                .is_err()
+        );
+    }
+}
