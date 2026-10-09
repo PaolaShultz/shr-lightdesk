@@ -1,4 +1,8 @@
-# Implementation status
+# Dated implementation evidence
+
+Task plans and current progress live only in [the owning plan](GIGPIES_IMPLEMENTATION.md).
+The dated records below preserve acceptance and failures for their original scope;
+they are not an active backlog. Later accepted evidence supersedes partial handoffs.
 
 The native LD-02 software frontend, actual Lux snapshot/control client and
 read-only LX05 analysis compatibility are implemented and software-validated against

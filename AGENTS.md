@@ -27,3 +27,13 @@ Preserve superseded owning plans in docs/archive/ and update current status.
 No publication or deployment is implied. Before any future commit, inspect live
 status and only named staged content; preserve unrelated edits. Fonts retain OFL
 and the MIT rendering adaptation retains attribution. See docs/DEVELOPMENT.md.
+
+## GigPies task tracking
+
+Use `docs/GIGPIES_IMPLEMENTATION.md` for GigPies work owned here. Keep each task plan,
+implementation state, acceptance checklist, evidence and next action in the same
+card; update it with the change. Shared integration tasks have one card in
+GigPies, linked from contributor plans. STATUS, maps, handoffs and knowledge notes
+route to task owners or preserve dated evidence; never mirror current task state.
+Archive closed cards once; keep the active queue limited to open work. Reference
+projects do not become GigPies runtime modules merely because code is reused.
