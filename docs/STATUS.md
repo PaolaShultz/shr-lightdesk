@@ -1,4 +1,8 @@
-# Implementation status
+# Dated implementation evidence
+
+Task plans and current progress live only in [the owning plan](GIGPIES_IMPLEMENTATION.md).
+The dated records below preserve acceptance and failures for their original scope;
+they are not an active backlog. Later accepted evidence supersedes partial handoffs.
 
 ## Task0020 configured analysis and operator workflow — 2026-10-08
 
