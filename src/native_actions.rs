@@ -14,6 +14,9 @@ use serde_json::json;
 pub enum Semantic {
     Action(Action),
     Grant,
+    Scenes,
+    SceneEdit,
+    ScenePreview,
     EnterUp,
     Preview,
     OpenGo,
@@ -36,13 +39,17 @@ pub enum Editor {
     Existing(Draft),
     Go(String),
     AutoGrant(String),
+    SceneEdit(String),
+    ScenePreview(String),
 }
 impl Editor {
     pub fn text(&self) -> String {
         match self {
             Self::Existing(Draft::Attribute { text, .. } | Draft::Record { text, .. })
             | Self::Go(text)
-            | Self::AutoGrant(text) => text.clone(),
+            | Self::AutoGrant(text)
+            | Self::SceneEdit(text)
+            | Self::ScenePreview(text) => text.clone(),
             Self::Existing(Draft::BlackoutOff) => String::new(),
         }
     }
@@ -52,6 +59,7 @@ pub struct Workflow {
     pub cursor: usize,
     pub attribute: usize,
     pub editor: Option<Editor>,
+    retained_scene: Option<Editor>,
     revision: u64,
     lease: Option<String>,
     selection: Vec<String>,
@@ -96,6 +104,9 @@ impl ReviewProgress {
 }
 impl Workflow {
     pub fn lost(&mut self) {
+        if let Some(editor) = self.retained_scene.take() {
+            self.editor = Some(editor);
+        }
         self.lease = None;
         self.progress = ReviewProgress::default();
     }
@@ -112,6 +123,7 @@ impl Workflow {
         Ok("Detached draft; Enter reviews exact targets; release then Enter confirms".into())
     }
     fn discard(&mut self, op: &mut Operator) -> Result<(), String> {
+        self.retained_scene = None;
         self.editor = None;
         self.lost();
         op.input.invalidate()
@@ -178,6 +190,12 @@ impl Workflow {
             Semantic::EnterUp => {
                 op.input.release();
                 Ok("Enter released".into())
+            }
+            Semantic::SceneEdit => self.begin(op, Editor::SceneEdit(String::new())),
+            Semantic::ScenePreview => self.begin(op, Editor::ScenePreview(String::new())),
+            Semantic::Scenes => {
+                self.discard(op)?;
+                op.line("page scenes").map(|(_, s)| s)
             }
             Semantic::Grant => {
                 self.lost();
@@ -320,7 +338,9 @@ impl Workflow {
                             Draft::Attribute { text, .. } | Draft::Record { text, .. },
                         ))
                         | Some(Editor::Go(text))
-                        | Some(Editor::AutoGrant(text)) => text,
+                        | Some(Editor::AutoGrant(text))
+                        | Some(Editor::SceneEdit(text))
+                        | Some(Editor::ScenePreview(text)) => text,
                         _ => return Err("no detached draft".into()),
                     };
                     if field.len() + text.len() > 128 {
@@ -335,7 +355,9 @@ impl Workflow {
                             Draft::Attribute { text, .. } | Draft::Record { text, .. },
                         ))
                         | Some(Editor::Go(text))
-                        | Some(Editor::AutoGrant(text)) => {
+                        | Some(Editor::AutoGrant(text))
+                        | Some(Editor::SceneEdit(text))
+                        | Some(Editor::ScenePreview(text)) => {
                             text.pop();
                         }
                         _ => {}
@@ -369,6 +391,8 @@ impl Workflow {
                         self.revision = op.client.authority.revision();
                         self.lease = op.client.authority.lease_id().map(str::to_owned);
                         self.check_draft(op)?;
+                        let retained_scene =
+                            matches!(editor, Editor::SceneEdit(_)).then(|| editor.clone());
                         let command = match editor {
                             Editor::Existing(Draft::Attribute { attribute, text }) => {
                                 let fields: Vec<_> = text.split_whitespace().collect();
@@ -409,6 +433,18 @@ impl Workflow {
                                 adapter::id(&json!(text))?;
                                 json!({"action":if replace{"update"}else{"record"},"kind":if palette{"palette"}else{"cue"},"id":text})
                             }
+                            Editor::SceneEdit(text) => crate::scenes::edit(
+                                op.client.authority.snapshot().ok_or("no snapshot")?,
+                                &text.split_whitespace().collect::<Vec<_>>(),
+                            )?,
+                            Editor::ScenePreview(text) => {
+                                if text.split_whitespace().count() != 1 {
+                                    return Err("scene preview: enter one scene ID".into());
+                                }
+                                let result = op.line(&format!("scene preview {text}"))?.1;
+                                self.editor = None;
+                                return Ok(result);
+                            }
                             Editor::AutoGrant(text) => {
                                 let fields: Vec<_> = text.split_whitespace().collect();
                                 if fields.len() != 2 {
@@ -435,8 +471,22 @@ impl Workflow {
                         };
                         let result = op.review(command)?;
                         self.editor = None;
+                        self.retained_scene = retained_scene;
                         Ok(result)
                     } else {
+                        if self.retained_scene.is_some()
+                            && op.input.confirmation.as_ref().is_none_or(|c| {
+                                op.client.now() >= c.expires
+                                    || c.revision != op.client.authority.revision()
+                                    || Some(c.lease.as_str()) != op.client.authority.lease_id()
+                            })
+                        {
+                            self.editor = self.retained_scene.take();
+                            self.progress = ReviewProgress::default();
+                            op.input.invalidate()?;
+                            op.input.held_enter = true;
+                            return Err("scene review expired or changed; draft retained, release Enter then review again".into());
+                        }
                         if !op.input.confirmation.as_ref().is_some_and(|c| {
                             self.progress.complete(
                                 c.context,
@@ -448,10 +498,18 @@ impl Workflow {
                                     .into(),
                             );
                         }
-                        op.line("confirm").map(|(_, s)| s)
+                        let result = op.line("confirm").map(|(_, s)| s);
+                        if result.is_ok() {
+                            self.retained_scene = None;
+                        } else if let Some(editor) = self.retained_scene.take() {
+                            self.editor = Some(editor);
+                            self.progress = ReviewProgress::default();
+                        }
+                        result
                     }
                 }
                 Action::Cancel | Action::Back => {
+                    self.retained_scene = None;
                     self.editor = None;
                     self.lost();
                     op.line("cancel").map(|(_, s)| s)
@@ -465,5 +523,22 @@ impl Workflow {
                 }
             },
         }
+    }
+}
+#[cfg(test)]
+mod scene_recovery_tests {
+    use super::*;
+    #[test]
+    fn context_loss_retains_scene_draft_and_requires_new_review() {
+        let mut w = Workflow {
+            retained_scene: Some(Editor::SceneEdit("driving lift 850".into())),
+            ..Default::default()
+        };
+        w.progress.see(3, 0, 2, 2);
+        assert!(w.progress.complete(3, 2));
+        w.lost();
+        assert_eq!(w.editor.as_ref().unwrap().text(), "driving lift 850");
+        assert!(!w.progress.complete(3, 2));
+        assert!(w.lease.is_none());
     }
 }

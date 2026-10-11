@@ -203,3 +203,16 @@ reviews, release Enter, inspect every material line, then Enter confirms. The
 Health page shows source identity, current calibration/confidence, grant scope,
 cap/expiry and retained contribution provenance independently. These controls do
 not arm DMX or establish physical output.
+
+Opt-in Lux `lx05-music-v1` and configured `lx05-music-v2` carry
+`lux.analysis.v2` music metadata. Read-only provider reports and native pages show
+Lux's chord/key estimates, confidence, Camelot identity, signed circle-of-fifths
+motion, tension/resolution and section novelty/recurrence. Verse and chorus are
+explicitly tentative candidates. Unknown or stale music has no estimates; source
+end frames identify current evidence. Beat/downbeat remain unavailable. Lightdesk
+consumes validated metadata and performs no audio analysis or music-driven control.
+
+Opt-in Lux LX06 authored scenes support F7/`page scenes`, S detached scene editing,
+V owner previews, bounded full-map import/export and independent scoped intensity/RGB
+grants. See [Scene maps](docs/SCENE_MAP.md). The surface shows measured evidence,
+inferred changes and actual winning values separately; no local lighting evaluation.

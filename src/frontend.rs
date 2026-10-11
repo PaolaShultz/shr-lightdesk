@@ -35,6 +35,7 @@ pub struct View {
     pub completed: u64,
     pub command_error: Option<String>,
     pub editor: Option<Editor>,
+    pub scene_preview: Option<Value>,
     pub cursor: usize,
     pub attribute: usize,
     pub role: Option<Value>,
@@ -74,6 +75,7 @@ impl View {
             completed: 0,
             command_error: None,
             editor: None,
+            scene_preview: op.scene_preview.clone(),
             cursor: 0,
             attribute: 0,
             role: None,
@@ -172,6 +174,36 @@ pub fn scene(v: &View, draft: &str, scroll: usize) -> Scene {
         "No physical output evidence. Semantic controls / F12 help / PgUp and PgDn exact review.",
         "#9caebc",
     );
+    // Colour chips encode owner-reported logical RGB only; no scene evaluation.
+    if v.page == "scenes"
+        && let Some(i) = &v.inventory
+        && let Some(fs) = i["snapshot"]["fixtures"].as_array()
+    {
+        let mut column = 0;
+        for f in fs.iter().take(6) {
+            let component = |name: &str| {
+                f["attributes"]
+                    .as_array()
+                    .and_then(|attrs| attrs.iter().find(|a| a["attribute"] == name))
+                    .and_then(|a| a["resolved"].as_u64())
+            };
+            if let (Some(r), Some(g), Some(b)) =
+                (component("red"), component("green"), component("blue"))
+            {
+                let color = format!(
+                    "#{:02x}{:02x}{:02x}",
+                    r.min(1000) * 255 / 1000,
+                    g.min(1000) * 255 / 1000,
+                    b.min(1000) * 255 / 1000
+                );
+                s.rect(1600 + column * 44, 24, 36, 20, &color);
+                column += 1;
+            }
+        }
+        if column > 0 {
+            s.text(1380, 36, "LOGICAL RGB", "#9caebc");
+        }
+    }
     let lines = display_lines(v);
     let page = scroll / 20 + 1;
     let pages = lines.len().saturating_sub(26).div_ceil(20) + 1;
@@ -233,6 +265,8 @@ pub fn scene(v: &View, draft: &str, scroll: usize) -> Scene {
                     },
                     Editor::Existing(_) => "RECORD ID",
                     Editor::Go(_) => "GO: CUE PLAYBACK",
+                    Editor::SceneEdit(_) => "SCENE: ID FIELD VALUES (integer tenths-percent)",
+                    Editor::ScenePreview(_) => "OWNER PREVIEW: SCENE_ID",
                     Editor::AutoGrant(_) => "AUTO: CAP_PERCENT TTL_MS (10..2000)",
                 },
                 e.text()
@@ -419,6 +453,41 @@ fn state_lines(v: &View) -> Vec<String> {
         focused,
         crate::native_actions::attribute_name(crate::model::Attribute::ALL[v.attribute.min(6)])
     ));
+    if v.page == "scenes" {
+        lines.extend(crate::scenes::presentation(i));
+        if let Some(p) = &v.scene_preview {
+            lines.push("LAST OWNER PREVIEW / nonmutating captured logical evidence".into());
+            if p["map_revision"] != i["scenes"]["map"]["revision"] {
+                lines
+                    .push("Preview belongs to an older map; request a fresh owner preview.".into());
+            }
+            lines.extend(crate::scenes::preview_lines(p));
+        }
+        if let Some(fs) = i["snapshot"]["fixtures"].as_array() {
+            for f in fs {
+                lines.push(format!("ACTUAL {}", string(&f["fixture"])));
+                if let Some(attrs) = f["attributes"].as_array() {
+                    for a in attrs {
+                        if matches!(
+                            a["attribute"].as_str(),
+                            Some("intensity" | "red" | "green" | "blue")
+                        ) {
+                            lines.push(format!(
+                                "  {} {} / source {}",
+                                string(&a["attribute"]),
+                                scalar(&a["resolved"], a["attribute"].as_str().unwrap()),
+                                string(&a["source"])
+                            ));
+                        }
+                    }
+                }
+            }
+        }
+        if crate::scenes::available(i) {
+            lines.extend(crate::scenes::map_lines(&i["scenes"]["map"]));
+        }
+        return lines.into_iter().flat_map(|l| wrapped(&l, 154)).collect();
+    }
     if let Some(a) = i.get("analysis") {
         lines.push(format!(
             "Analysis {} / current confidence {} / intensity proposal {}",
@@ -426,9 +495,12 @@ fn state_lines(v: &View) -> Vec<String> {
             scalar(&a["confidence"], "intensity"),
             scalar(&a["proposal"], "intensity")
         ));
-        lines.push(
-            "Beat, downbeat and harmony unavailable. K/L calibrate start/finish; A enter AUTO; T grant cap/TTL; X revoke.".into(),
-        );
+        if a.get("musical").is_some() {
+            lines.extend(crate::music::presentation(a));
+        } else {
+            lines.push("Beat, downbeat and harmony unavailable.".into());
+        }
+        lines.push("K/L calibrate start/finish; A enter AUTO; T grant cap/TTL; X revoke.".into());
         lines.push(format!(
             "Calibration {} windows / generation {} / source {} / refusal {}",
             string(&a["calibration_windows"]),
@@ -605,6 +677,8 @@ pub fn review_lines(review: &Value) -> Vec<String> {
         "record" | "update" => out.push(format!("{} {} {} / {}",if action=="update" {"Update"} else {"Create"},string(&review["kind"]),string(&review["id"]),if action=="update" {"overwrite matching programmer targets; retain other stored values"} else {"existing identity will be refused"})),
         "go" => out.push(format!("GO cue {} into playback {}",string(&review["cue"]),string(&review["playback"]))),
         "blackout" => out.push(format!("Blackout {}",if review["enabled"]==true {"ON"} else {"OFF - output intent resumes"})),
+        "scene_map_replace" => { out.push("Replace entire authored map atomically; no implicit scene GO or authority grant".into());out.extend(crate::scenes::map_lines(&review["map"])); },
+        "scene_grant" => out.push(format!("Scene scope {} / intensity cap {} / color cap {} / TTL {}ms; programmer and Hold retain priority",review["fixtures"],review["intensity_cap"],review["color_cap"],review["ttl_ms"])),
         "analysis_calibrate" => out.push(format!("Calibration {} / existing analysis grant revoked; source windows measured by Lux", string(&review["phase"]))),
         "analysis_grant" => {
             out.push(format!("Intensity only / cap {} / expires after {} ms / no automatic renewal", scalar(&review["cap"], "intensity"), review["ttl_ms"]));
@@ -652,7 +726,12 @@ pub fn material_review_lines(
     ];
     let action = command["action"].as_str().unwrap_or("");
     let command_lines = review_lines(command);
-    if action == "touch" {
+    if action == "scene_map_replace" {
+        out.extend(crate::scenes::changes(
+            &inventory["scenes"]["map"],
+            &command["map"],
+        ));
+    } else if action == "touch" {
         out.extend(command_lines.first().cloned());
         out.extend(command_lines.last().cloned());
     } else {
@@ -1046,7 +1125,7 @@ pub fn offscreen(
             .map_err(|e| e.to_string())?;
         }
     }
-    std::fs::write(out.join("lux.json"),serde_json::to_vec_pretty(&serde_json::json!({"inventory":v.inventory,"freshness":v.freshness,"physical":"unknown","review":v.review,"review_lines":v.review_text})).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
+    std::fs::write(out.join("lux.json"),serde_json::to_vec_pretty(&serde_json::json!({"inventory":v.inventory,"scene_preview":v.scene_preview,"scene_preview_kind":"captured_nonmutating","freshness":v.freshness,"physical":"unknown","review":v.review,"review_lines":v.review_text})).map_err(|e|e.to_string())?).map_err(|e|e.to_string())?;
     Ok(())
 }
 /// Explicit injected semantic script for device-free real-provider acceptance.
@@ -1076,6 +1155,9 @@ pub fn script_action(line: &str, view: &View) -> Result<Semantic, String> {
         ["@attribute", delta] => Semantic::Action(Action::Attribute(
             delta.parse().map_err(|_| "attribute delta")?,
         )),
+        ["@page", "scenes"] => Semantic::Scenes,
+        ["@scene-edit"] => Semantic::SceneEdit,
+        ["@scene-preview"] => Semantic::ScenePreview,
         ["@page", page] => Semantic::Action(Action::Page(Page::parse(page).ok_or("page")?)),
         ["@record", kind] => Semantic::Action(Action::Record {
             palette: *kind == "palette",
@@ -1192,6 +1274,14 @@ impl Worker {
                             operator.client.set_input_context(g.clone(), seen);
                             let writable_role = role_guard();
                             let readonly = match &intent.payload {
+                                Payload::Line(line)
+                                    if matches!(
+                                        line.split_whitespace().collect::<Vec<_>>().as_slice(),
+                                        ["scene", "map"] | ["scene", "export", _]
+                                    ) =>
+                                {
+                                    true
+                                }
                                 Payload::Line(line) => matches!(
                                     line.split_whitespace().next(),
                                     Some(
@@ -1209,6 +1299,7 @@ impl Worker {
                                 ),
                                 Payload::Semantic(
                                     Semantic::EnterUp
+                                    | Semantic::Scenes
                                     | Semantic::Reviewed { .. }
                                     | Semantic::Bank(_)
                                     | Semantic::Action(

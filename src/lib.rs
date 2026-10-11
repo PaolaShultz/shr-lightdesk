@@ -21,3 +21,7 @@ pub mod native_actions;
 
 #[cfg(target_os = "linux")]
 pub mod role_client;
+
+pub mod music;
+
+pub mod scenes;

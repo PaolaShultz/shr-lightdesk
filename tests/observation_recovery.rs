@@ -91,7 +91,21 @@ fn unbound_worker_observes_automatically_but_refuses_writes_and_respects_disconn
     let worker = Worker::spawn(server.path.clone(), SHOW.into(), 9);
     wait(|| server.reads.load(Ordering::SeqCst) >= 6);
     wait(|| worker.view.lock().unwrap().freshness == "Fresh");
-    for action in [Semantic::Grant, Semantic::Action(Action::Blackout(true))] {
+    let completed = worker.view.lock().unwrap().completed;
+    worker.action(Semantic::Scenes).unwrap();
+    wait(|| worker.view.lock().unwrap().completed > completed);
+    {
+        let view = worker.view.lock().unwrap();
+        assert_eq!(view.page, "scenes");
+        assert!(view.command_error.is_none());
+        assert!(!view.lease);
+    }
+    for action in [
+        Semantic::Grant,
+        Semantic::SceneEdit,
+        Semantic::ScenePreview,
+        Semantic::Action(Action::Blackout(true)),
+    ] {
         let before = worker.view.lock().unwrap().completed;
         worker.action(action).unwrap();
         wait(|| worker.view.lock().unwrap().completed > before);

@@ -264,7 +264,7 @@ fn stores(v: &Value, p: &Patch, max: usize, targets: usize) -> Result<BTreeMap<S
     }
     Ok(out)
 }
-fn source(v: &Value, analysis: bool) -> Result<(String, Option<String>)> {
+fn source(v: &Value, analysis: bool, scenes: bool) -> Result<(String, Option<String>)> {
     if let Some(s) = v.as_str() {
         if !matches!(s, "fixture_default" | "hold" | "programmer" | "release") {
             return Err("unknown source".into());
@@ -274,6 +274,9 @@ fn source(v: &Value, analysis: bool) -> Result<(String, Option<String>)> {
     let o = v.as_object().ok_or("source schema")?;
     if analysis && o.len() == 1 && o.contains_key("auto") {
         auto_source(&o["auto"])?;
+        if text(&o["auto"])?.starts_with("scene-") && !scenes {
+            return Err("scene source outside scene schema".into());
+        }
         return Ok(("auto".into(), Some(text(&o["auto"])?.into())));
     }
     if o.len() != 1 || !o.contains_key("playback") {
@@ -284,7 +287,11 @@ fn source(v: &Value, analysis: bool) -> Result<(String, Option<String>)> {
 fn auto_source(v: &Value) -> Result<()> {
     if !matches!(
         text(v)?,
-        "mode-entry-continuity" | "analysis-active" | "analysis-held"
+        "mode-entry-continuity"
+            | "analysis-active"
+            | "analysis-held"
+            | "scene-active"
+            | "scene-held"
     ) {
         return Err("unknown AUTO source".into());
     }
@@ -413,6 +420,7 @@ fn analysis_status(
     a: &Value,
     p: &Patch,
     binding: Option<&Value>,
+    musical: bool,
 ) -> Result<BTreeMap<String, (i32, String)>> {
     let mut keys = vec![
         "analysis_version",
@@ -447,8 +455,21 @@ fn analysis_status(
             return Err("analysis binding identity".into());
         }
     }
+    if musical {
+        keys.push("musical");
+    }
     schema(a, &keys)?;
-    exact(&a["analysis_version"], "lux.analysis.v1")?;
+    exact(
+        &a["analysis_version"],
+        if musical {
+            "lux.analysis.v2"
+        } else {
+            "lux.analysis.v1"
+        },
+    )?;
+    if musical {
+        crate::music::validate(a)?;
+    }
     let state = text(&a["state"])?;
     if !matches!(
         state,
@@ -614,6 +635,9 @@ fn analysis_status(
             .ok_or("AUTO unsupported fixture")?
             .value(&entry["intensity"])?;
         auto_source(&entry["source"])?;
+        if text(&entry["source"])?.starts_with("scene-") {
+            return Err("scene source in legacy analysis layer".into());
+        }
         nullable_reason(&entry["held_reason"])?;
         let provenance = &entry["provenance"];
         if !provenance.is_null() {
@@ -627,7 +651,14 @@ fn analysis_status(
                     "confidence",
                 ],
             )?;
-            exact(&provenance["analysis_version"], "lux.analysis.v1")?;
+            exact(
+                &provenance["analysis_version"],
+                if musical {
+                    "lux.analysis.v2"
+                } else {
+                    "lux.analysis.v1"
+                },
+            )?;
             analysis_descriptor(&provenance["source_identity"], binding)?;
             analysis_window(
                 &provenance["source_window_range"],
@@ -666,12 +697,29 @@ fn inventory(v: &Value, expected_show: &str, epoch: u64, revision: u64) -> Resul
         "snapshot",
         "snapshot_budget",
     ];
-    let configured = v["wire_schema"] == "lx05-v2";
-    let analysis = configured || v.get("wire_schema").is_some_and(|s| s == "lx05-v1");
+    let musical = matches!(
+        v["wire_schema"].as_str(),
+        Some("lx05-music-v1" | "lx05-music-v2" | "lx06-scenes-v1" | "lx06-scenes-v2")
+    );
+    let configured = matches!(
+        v["wire_schema"].as_str(),
+        Some("lx05-v2" | "lx05-music-v2" | "lx06-scenes-v2")
+    );
+    let analysis = musical || configured || v.get("wire_schema").is_some_and(|s| s == "lx05-v1");
     let timed = match v.get("wire_schema") {
         None => false,
         Some(schema) if matches!(text(schema)?, "lx04-v1" | "lx04-durable-v1") => true,
-        Some(schema) if matches!(text(schema)?, "lx05-v1" | "lx05-v2") => {
+        Some(schema)
+            if matches!(
+                text(schema)?,
+                "lx05-v1"
+                    | "lx05-v2"
+                    | "lx05-music-v1"
+                    | "lx05-music-v2"
+                    | "lx06-scenes-v1"
+                    | "lx06-scenes-v2"
+            ) =>
+        {
             v.get("release").is_some()
         }
         Some(_) => return Err("unknown wire schema".into()),
@@ -697,7 +745,14 @@ fn inventory(v: &Value, expected_show: &str, epoch: u64, revision: u64) -> Resul
         keys.push("analysis_binding");
         analysis_binding(&v["analysis_binding"])?;
     }
+    let scenes = crate::scenes::available(v);
+    if scenes {
+        keys.push("scenes");
+    }
     schema(v, &keys)?;
+    if scenes {
+        crate::scenes::validate_status(&v["scenes"], v)?;
+    }
     if durable {
         schema(
             &v["checkpoint"],
@@ -715,7 +770,9 @@ fn inventory(v: &Value, expected_show: &str, epoch: u64, revision: u64) -> Resul
     }
     exact(
         &v["applied_auto"],
-        if analysis {
+        if scenes {
+            "explicit_bounded_scene_grant"
+        } else if analysis {
             "explicit_bounded_intensity_grant"
         } else {
             "unavailable"
@@ -769,6 +826,7 @@ fn inventory(v: &Value, expected_show: &str, epoch: u64, revision: u64) -> Resul
             &v["analysis"],
             &p,
             configured.then_some(&v["analysis_binding"]),
+            musical,
         )?
     } else {
         BTreeMap::new()
@@ -950,7 +1008,7 @@ fn inventory(v: &Value, expected_show: &str, epoch: u64, revision: u64) -> Resul
                 attribute_keys.push("release");
             }
             if a.get("auto").is_some() {
-                if !analysis || a["attribute"] != "intensity" {
+                if !analysis || (!scenes && a["attribute"] != "intensity") {
                     return Err("AUTO outside LX05 intensity".into());
                 }
                 attribute_keys.push("auto");
@@ -974,11 +1032,34 @@ fn inventory(v: &Value, expected_show: &str, epoch: u64, revision: u64) -> Resul
             if a.get("release").is_some_and(|x| !x.is_null()) {
                 releases.insert(t.clone(), cap.value(&a["release"])?);
             }
-            let auto = automatic.get(fid);
-            if name == "intensity" {
+            let scene_auto = if scenes {
+                v["scenes"]["automatic_layer"]["values"]
+                    .as_array()
+                    .unwrap()
+                    .iter()
+                    .find(|e| e["fixture"] == fid && e["attribute"] == name)
+                    .map(|e| {
+                        (
+                            integer(&e["value"]).unwrap(),
+                            text(&e["source"]).unwrap().to_owned(),
+                        )
+                    })
+            } else {
+                None
+            };
+            let auto = scene_auto.as_ref().or_else(|| {
+                if name == "intensity" {
+                    automatic.get(fid)
+                } else {
+                    None
+                }
+            });
+            if name == "intensity" || scene_auto.is_some() {
                 match (a.get("auto"), auto) {
                     (Some(value), Some((n, _))) if cap.value(value)? == *n => {
-                        automatic_seen.insert(fid.to_owned());
+                        if automatic.contains_key(fid) {
+                            automatic_seen.insert(fid.to_owned());
+                        }
                     }
                     (None, None) => {}
                     _ => return Err("AUTO layer/value mismatch".into()),
@@ -1036,25 +1117,22 @@ fn inventory(v: &Value, expected_show: &str, epoch: u64, revision: u64) -> Resul
             if pb.len() != playing.values().filter(|l| l.contains_key(&t)).count() {
                 return Err("incomplete playing provenance".into());
             }
-            let chosen = source(&a["source"], analysis)?;
+            let chosen = source(&a["source"], analysis, scenes)?;
             let mut contributors = BTreeSet::new();
             let mut winners = 0;
             let mut chosen_wins = false;
             for c in array(&a["contributors"], if analysis { 12 } else { 11 })? {
                 schema(c, &["source", "value", "winner"])?;
-                let src = source(&c["source"], analysis)?;
+                let src = source(&c["source"], analysis, scenes)?;
                 let value = cap.value(&c["value"])?;
                 let exists = match src.0.as_str() {
                     "fixture_default" => value == cap.default,
                     "programmer" => programmer.get(&t) == Some(&value),
                     "hold" => holds.get(&t) == Some(&value),
                     "release" => releases.get(&t) == Some(&value),
-                    "auto" => {
-                        name == "intensity"
-                            && auto.is_some_and(|(n, reason)| {
-                                *n == value && src.1.as_deref() == Some(reason.as_str())
-                            })
-                    }
+                    "auto" => auto.is_some_and(|(n, reason)| {
+                        *n == value && src.1.as_deref() == Some(reason.as_str())
+                    }),
                     "playback" => {
                         src.1.as_ref().and_then(|pid| pb.get(pid.as_str())) == Some(&value)
                     }
@@ -1081,9 +1159,7 @@ fn inventory(v: &Value, expected_show: &str, epoch: u64, revision: u64) -> Resul
                     expected.insert((name.to_owned(), None));
                 }
             }
-            if name == "intensity"
-                && let Some((_, reason)) = auto
-            {
+            if let Some((_, reason)) = auto {
                 expected.insert(("auto".into(), Some(reason.clone())));
             }
             for pid in pb.keys() {
@@ -1363,7 +1439,14 @@ impl LuxClient {
             ));
         }
         if let Some(a) = v.get("analysis") {
-            out.push_str(&format!("analysis {} / current confidence {} / proposal {} / retained AUTO {} / beat downbeat harmony unavailable\n", a["state"], a["confidence"], a["proposal"], a["automatic_layer"]));
+            out.push_str(&format!(
+                "analysis {} / current confidence {} / proposal {} / retained AUTO {}\n",
+                a["state"], a["confidence"], a["proposal"], a["automatic_layer"]
+            ));
+            for line in crate::music::presentation(a) {
+                out.push_str(&line);
+                out.push('\n');
+            }
         }
         out.push_str(&format!(
             "master {} / blackout {} / grants {}\nstored and playing inventory {}\n",
@@ -1642,7 +1725,24 @@ pub(crate) fn validate_analysis_result(a: &Value, inventory: &Value) -> Result<(
     analysis_status(
         a,
         &p,
-        (inventory["wire_schema"] == "lx05-v2").then_some(&inventory["analysis_binding"]),
+        matches!(
+            inventory["wire_schema"].as_str(),
+            Some("lx05-v2" | "lx05-music-v2" | "lx06-scenes-v2")
+        )
+        .then_some(&inventory["analysis_binding"]),
+        matches!(
+            inventory["wire_schema"].as_str(),
+            Some("lx05-music-v1" | "lx05-music-v2" | "lx06-scenes-v1" | "lx06-scenes-v2")
+        ),
     )?;
     Ok(())
+}
+pub(crate) fn validate_scene_source(p: &Value, i: &Value) -> Result<()> {
+    let binding = (i["wire_schema"] == "lx06-scenes-v2").then_some(&i["analysis_binding"]);
+    analysis_descriptor(&p["source_identity"], binding)?;
+    analysis_window(&p["source_window_range"], &p["source_identity"])
+}
+
+pub(crate) fn validate_scene_winner(v: &Value, i: &Value) -> Result<()> {
+    source(v, true, crate::scenes::available(i)).map(|_| ())
 }

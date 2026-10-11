@@ -3,7 +3,7 @@ use crate::{
     adapter::{self, Freshness, LuxClient},
     codec,
 };
-use adapter::{exact, id, integer, schema, text};
+use adapter::{array, exact, id, integer, schema, text};
 use serde_json::{Value, json};
 use std::collections::VecDeque;
 type Result<T> = std::result::Result<T, String>;
@@ -321,6 +321,106 @@ impl LuxAuthority {
                             self.preview = None;
                             self.preview_until = None;
                         }
+                        "scene_map_replace" => {
+                            schema(&v["body"], &["application", "map_revision", "physical"])?;
+                            exact(&v["body"]["application"], "scene_map_replaced")?;
+                            exact(&v["body"]["physical"], "unknown")?;
+                            if v["body"]["map_revision"] != command["map"]["revision"] {
+                                return Err("scene map ACK revision".into());
+                            }
+                        }
+                        "scene_preview" => {
+                            schema(
+                                &v["body"],
+                                &[
+                                    "application",
+                                    "scene_id",
+                                    "map_revision",
+                                    "values",
+                                    "actual",
+                                    "unsupported",
+                                    "physical",
+                                ],
+                            )?;
+                            exact(&v["body"]["application"], "scene_preview")?;
+                            exact(&v["body"]["physical"], "unknown")?;
+                            if v["body"]["scene_id"] != command["scene_id"]
+                                || v["body"]["map_revision"]
+                                    != snapshot["scenes"]["map"]["revision"]
+                            {
+                                return Err("scene preview identity".into());
+                            }
+                            crate::scenes::validate_values(&v["body"]["values"], snapshot)?;
+                            let actual = array(&v["body"]["actual"], 128)?;
+                            let values = v["body"]["values"].as_array().unwrap();
+                            if actual.len() != values.len() {
+                                return Err("scene preview actual scope".into());
+                            }
+                            for (a, target) in actual.iter().zip(values) {
+                                schema(a, &["fixture", "attribute", "value", "source"])?;
+                                if a["fixture"] != target["fixture"]
+                                    || a["attribute"] != target["attribute"]
+                                {
+                                    return Err("scene preview actual identity/order".into());
+                                }
+                                adapter::advertised_value(
+                                    snapshot,
+                                    id(&a["fixture"])?,
+                                    text(&a["attribute"])?,
+                                    &a["value"],
+                                )?;
+                                adapter::validate_scene_winner(&a["source"], snapshot)?;
+                            }
+                            let mut seen = std::collections::BTreeSet::new();
+                            for u in array(&v["body"]["unsupported"], 32)? {
+                                schema(u, &["fixture", "attributes"])?;
+                                let f = adapter::id(&u["fixture"])?;
+                                if !seen.insert(f)
+                                    || !snapshot["patch"]["fixtures"]
+                                        .as_array()
+                                        .unwrap()
+                                        .iter()
+                                        .any(|x| x["id"] == f)
+                                {
+                                    return Err("scene unsupported fixture".into());
+                                }
+                                let mut attrs = std::collections::BTreeSet::new();
+                                for a in array(&u["attributes"], 5)? {
+                                    let a = text(a)?;
+                                    if !matches!(
+                                        a,
+                                        "movement" | "strobe" | "red" | "green" | "blue"
+                                    ) || !attrs.insert(a)
+                                    {
+                                        return Err("scene unsupported attribute".into());
+                                    }
+                                }
+                            }
+                        }
+                        "scene_grant" => {
+                            schema(&v["body"], &["application", "map_revision", "grant"])?;
+                            exact(&v["body"]["application"], "scene_granted")?;
+                            let g = &v["body"]["grant"];
+                            let mut status = snapshot["scenes"].clone();
+                            status["grant"] = g.clone();
+                            crate::scenes::validate_status(&status, snapshot)?;
+                            if v["body"]["map_revision"] != snapshot["scenes"]["map"]["revision"]
+                                || g["issue_revision"] != v["revision"]
+                                || g["fixtures"] != command["fixtures"]
+                                || g["intensity_cap"] != command["intensity_cap"]
+                                || g["color_cap"] != command["color_cap"]
+                                || g["writer"] != p.envelope["writer"]
+                                || g["lease"] != p.envelope["lease"]
+                                || codec::counter(&g["expiry_tick"])?
+                                    != codec::counter(&v["effective_tick"])?
+                                        .checked_add(
+                                            command["ttl_ms"].as_u64().ok_or("scene TTL")? / 10,
+                                        )
+                                        .ok_or("scene expiry")?
+                            {
+                                return Err("scene grant ACK identity".into());
+                            }
+                        }
                         "analysis_calibrate" | "analysis_grant" => {
                             schema(&v["body"], &["analysis"])?;
                             adapter::validate_analysis_result(&v["body"]["analysis"], snapshot)?;
@@ -452,6 +552,7 @@ impl LightingAuthority for LuxAuthority {
         if kind == "command" {
             schema(&body, &["scope", "command"])?;
             exact(&body["scope"], "lighting-control")?;
+            crate::scenes::validate_command(self.cache.snapshot().unwrap(), &body["command"])?;
             crate::lux_operator::validate_analysis_command(
                 self.cache.snapshot().unwrap(),
                 &body["command"],

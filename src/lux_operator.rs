@@ -77,6 +77,7 @@ pub struct Operator {
     show: String,
     epoch: u64,
     pub page: String,
+    pub scene_preview: Option<Value>,
     review_commands: bool,
 }
 fn writer() -> String {
@@ -99,6 +100,7 @@ impl Operator {
             show: show.into(),
             epoch,
             page: "stage".into(),
+            scene_preview: None,
             review_commands: false,
         })
     }
@@ -130,6 +132,10 @@ impl Operator {
     }
     pub(crate) fn review(&mut self, command: Value) -> Result<String> {
         self.client.maintain()?;
+        crate::scenes::validate_command(
+            self.client.authority.snapshot().ok_or("no snapshot")?,
+            &command,
+        )?;
         if !self.client.authority.writable(self.client.now()) {
             return Err("fresh snapshot/grant required".into());
         }
@@ -148,8 +154,13 @@ impl Operator {
             expires: self
                 .client
                 .now()
-                .checked_add(2000)
-                .ok_or("confirmation deadline exhausted")?,
+                .checked_add(if command["action"] == "scene_map_replace" {
+                    30000
+                } else {
+                    2000
+                })
+                .ok_or("confirmation deadline exhausted")?
+                .min(crate::lux_control::SESSION_MS),
         });
         self.freeze_material_review();
         Ok(format!(
@@ -223,7 +234,16 @@ impl Operator {
         let snapshot = self.client.authority.snapshot().ok_or("no snapshot")?;
         if !matches!(
             snapshot["wire_schema"].as_str(),
-            Some("lx04-v1" | "lx04-durable-v1" | "lx05-v1" | "lx05-v2")
+            Some(
+                "lx04-v1"
+                    | "lx04-durable-v1"
+                    | "lx05-v1"
+                    | "lx05-v2"
+                    | "lx05-music-v1"
+                    | "lx05-music-v2"
+                    | "lx06-scenes-v1"
+                    | "lx06-scenes-v2"
+            )
         ) || snapshot.get("release").is_none()
         {
             return Err("timed preview capability unavailable".into());
@@ -277,13 +297,32 @@ impl Operator {
         ))
     }
     pub fn status(&self) -> Result<String> {
+        let scene_status = if self.page == "scenes" {
+            self.client
+                .authority
+                .snapshot()
+                .map(|i| {
+                    let mut lines = crate::scenes::presentation(i);
+                    if crate::scenes::available(i) {
+                        lines.extend(crate::scenes::map_lines(&i["scenes"]["map"]));
+                    }
+                    if let Some(p) = &self.scene_preview {
+                        lines.extend(crate::scenes::preview_lines(p));
+                    }
+                    lines.join("\n")
+                })
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
         Ok(format!(
-            "selection {:?} / page {} / confirmation {:?} / input release required {}\n{}",
+            "selection {:?} / page {} / confirmation {:?} / input release required {}\n{}\n{}",
             self.selected,
             self.page,
             self.input.confirmation.as_ref().map(|c| &c.command),
             self.input.release_required,
-            self.client.authority.status()?
+            self.client.authority.status()?,
+            scene_status
         ))
     }
     /// Native console uses the same material-review path as semantic controls.
@@ -303,8 +342,71 @@ impl Operator {
             [] => String::new(),
             ["quit"] => return Ok((false, String::new())),
             ["status"] => self.status()?,
+            ["scene", "map"] => {
+                let i = self.client.authority.snapshot().ok_or("no snapshot")?;
+                let mut lines = crate::scenes::presentation(i);
+                if crate::scenes::available(i) {
+                    lines.extend(crate::scenes::map_lines(&i["scenes"]["map"]));
+                }
+                lines.join("\n")
+            }
+            ["scene", "edit", fields @ ..] => {
+                let c = crate::scenes::edit(
+                    self.client.authority.snapshot().ok_or("no snapshot")?,
+                    fields,
+                )?;
+                self.review(c)?
+            }
+            ["scene", "export", path] => {
+                let i = self.client.authority.snapshot().ok_or("no snapshot")?;
+                if !crate::scenes::available(i) {
+                    return Err("scene capability unavailable".into());
+                }
+                std::fs::write(
+                    path,
+                    serde_json::to_vec_pretty(&i["scenes"]["map"]).map_err(|e| e.to_string())?,
+                )
+                .map_err(|e| e.to_string())?;
+                "Scene map exported; edit then import for exact review".into()
+            }
+            ["scene", "import", path] => {
+                let map = crate::scenes::read_map(std::path::Path::new(path))?;
+                let c = json!({"action":"scene_map_replace","map":map});
+                crate::scenes::validate_command(
+                    self.client.authority.snapshot().ok_or("no snapshot")?,
+                    &c,
+                )?;
+                self.review(c)?
+            }
+            ["scene", "preview", scene] => {
+                if self.input.release_required {
+                    return Err("release/pickup required".into());
+                }
+                let c = json!({"action":"scene_preview","scene_id":scene});
+                crate::scenes::validate_command(
+                    self.client.authority.snapshot().ok_or("no snapshot")?,
+                    &c,
+                )?;
+                self.input.invalidate()?;
+                let reply = self.client.command(c)?;
+                let out = Self::check_reply(reply.clone())?;
+                self.scene_preview = Some(reply["body"].clone());
+                format!(
+                    "{}{}",
+                    out,
+                    crate::scenes::preview_lines(&reply["body"]).join("\n")
+                )
+            }
+            ["scene", "grant", intensity, color, ttl] => {
+                let c = json!({"action":"scene_grant","fixtures":self.selected,"intensity_cap":intensity.parse::<i32>().map_err(|_|"intensity cap integer")?,"color_cap":color.parse::<i32>().map_err(|_|"color cap integer")?,"ttl_ms":ttl.parse::<u64>().map_err(|_|"TTL integer")?});
+                crate::scenes::validate_command(
+                    self.client.authority.snapshot().ok_or("no snapshot")?,
+                    &c,
+                )?;
+                self.review(c)?
+            }
             ["status-json", path] => {
-                let report = json!({"cached_state":format!("{:?}",self.client.authority.freshness()),"physical":"unknown","submitted":null,"observed":null,"uncertain":self.client.authority.uncertain,"last_ack":self.client.authority.last_reply,"inventory":self.client.authority.snapshot(),"confirmation":self.input.confirmation.as_ref().map(|c| &c.command)});
+                let report = json!({"cached_state":format!("{:?}",self.client.authority.freshness()),"physical":"unknown","submitted":null,"observed":null,"uncertain":self.client.authority.uncertain,"last_ack":self.client.authority.last_reply,"inventory":self.client.authority.snapshot(),"scene_preview":self.scene_preview,"scene_preview_kind":"captured_nonmutating","confirmation":self.input.confirmation.as_ref().map(|c| &c.command)});
                 std::fs::write(
                     path,
                     serde_json::to_vec_pretty(&report).map_err(|e| e.to_string())?,
@@ -324,6 +426,7 @@ impl Operator {
             ["reconnect", epoch] => {
                 let epoch = crate::codec::counter(&json!(epoch))?;
                 self.input.lost()?;
+                self.scene_preview = None;
                 self.client.authority.disconnect();
                 self.client = LocalClient::connect(&self.path, &self.show, epoch, &writer())?;
                 self.epoch = epoch;
@@ -331,6 +434,7 @@ impl Operator {
             }
             ["disconnect"] => {
                 self.input.lost()?;
+                self.scene_preview = None;
                 self.client.authority.disconnect();
                 self.status()?
             }
@@ -354,7 +458,15 @@ impl Operator {
                 self.status()?
             }
             ["page", page]
-                if ["stage", "programmer", "library", "playbacks", "health"].contains(page) =>
+                if [
+                    "stage",
+                    "programmer",
+                    "library",
+                    "playbacks",
+                    "health",
+                    "scenes",
+                ]
+                .contains(page) =>
             {
                 self.input.invalidate()?;
                 self.page = (*page).into();
@@ -484,7 +596,7 @@ impl Operator {
         Ok((true, output))
     }
 }
-pub const CONTROL_HELP: &str = "REAL LUX / logical null output; physical UNKNOWN\nstatus | grant | select STABLE_ID... | touch ATTRIBUTE INTEGER_TENTHS | touch-rgb R G B | touch-position PAN TILT\nrecord cue|palette ID | update cue|palette ID (review) | go CUE PLAYBACK | clearHold\npreview ATTRIBUTE... | release (exact reviewed engine token) | cancel | checkpoint (accepted durable capability only)\nNative K/L calibration start/finish; A AUTO entry; T cap-percent/TTL editor; X revoke to ASSIST\nmaster 0..1000 | blackout on|off (off review) | mode manual|assist\ncalibrate start|finish (review) | auto enter (review) | auto grant CAP_TENTHS TTL_MS (review selected fixtures, 10..2000ms) | auto revoke (review ASSIST exit)\nconfirm (Enter down) | enter up | release-input | cancel | page stage|programmer|library|playbacks|health | focus lost | inputlost\nrefresh | disconnect | reconnect EPOCH | wait 0..2000 | quit\n";
+pub const CONTROL_HELP: &str = "REAL LUX / logical null output; physical UNKNOWN\nstatus | grant | select STABLE_ID... | touch ATTRIBUTE INTEGER_TENTHS | touch-rgb R G B | touch-position PAN TILT\nrecord cue|palette ID | update cue|palette ID (review) | go CUE PLAYBACK | clearHold\npreview ATTRIBUTE... | release (exact reviewed engine token) | cancel | checkpoint (accepted durable capability only)\nscene map | scene edit ID FIELD VALUES... (review) | scene export PATH | scene import PATH (review revision+1) | scene preview ID | scene grant INTENSITY_CAP COLOR_CAP TTL_MS (review)\nNative F7 scenes; S scene edit; V scene preview; K/L calibration start/finish; A AUTO entry; T cap-percent/TTL editor; X revoke to ASSIST\nmaster 0..1000 | blackout on|off (off review) | mode manual|assist\ncalibrate start|finish (review) | auto enter (review) | auto grant CAP_TENTHS TTL_MS (review selected fixtures, 10..2000ms) | auto revoke (review ASSIST exit)\nconfirm (Enter down) | enter up | release-input | cancel | page stage|programmer|library|playbacks|health | focus lost | inputlost\nrefresh | disconnect | reconnect EPOCH | wait 0..2000 | quit\n";
 
 /// Bounded script or stdin session. Poll stdin so lease renewal continues while idle.
 pub fn run(path: &Path, show: &str, epoch: u64, script: Option<&Path>) -> Result<()> {
@@ -602,8 +714,20 @@ pub fn validate_analysis_command(snapshot: &Value, command: &Value) -> Result<()
     }
     if !matches!(
         snapshot["wire_schema"].as_str(),
-        Some("lx05-v1" | "lx05-v2")
-    ) || snapshot["applied_auto"] != "explicit_bounded_intensity_grant"
+        Some(
+            "lx05-v1"
+                | "lx05-v2"
+                | "lx05-music-v1"
+                | "lx05-music-v2"
+                | "lx06-scenes-v1"
+                | "lx06-scenes-v2"
+        )
+    ) || snapshot["applied_auto"]
+        != if crate::scenes::available(snapshot) {
+            "explicit_bounded_scene_grant"
+        } else {
+            "explicit_bounded_intensity_grant"
+        }
     {
         return Err("analysis capability unavailable".into());
     }
@@ -663,13 +787,13 @@ pub fn validate_analysis_command(snapshot: &Value, command: &Value) -> Result<()
 pub fn analysis_review_basis(inventory: &Value, command: &Value) -> Option<Value> {
     if !matches!(
         command["action"].as_str(),
-        Some("analysis_calibrate" | "analysis_grant")
+        Some("analysis_calibrate" | "analysis_grant" | "scene_grant")
     ) && !(command["action"] == "mode" && command["mode"] == "auto")
     {
         return None;
     }
     let a = &inventory["analysis"];
     Some(
-        json!({"source_identity":a["source_identity"],"generation":a["generation"],"calibration_generation":a["calibration_generation"],"binding":a["analysis_binding"]}),
+        json!({"source_identity":a["source_identity"],"generation":a["generation"],"calibration_generation":a["calibration_generation"],"binding":a["analysis_binding"],"scene_map_revision":if command["action"]=="scene_grant"{inventory["scenes"]["map"]["revision"].clone()}else{Value::Null}}),
     )
 }

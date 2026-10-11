@@ -10,6 +10,10 @@ release/recovery presentation and named-analysis provenance have software eviden
 in [STATUS](STATUS.md). [Capabilities](CAPABILITIES.md) describes supported behavior.
 Physical output remains unknown; display/controller/LED operation is unqualified.
 
+The shared [GP-MUSIC card](../../gigpies/docs/archive/records/2026-10-11-gp-music.md) owns harmonic/progression and tentative verse/chorus integration. Lightdesk contributes strict consumer validation and read-only presentation; Lux owns the analysis.
+
+The archived shared [GP-SCENES card](../../gigpies/docs/archive/records/2026-10-11-gp-scenes.md) owns the scene map/director integration. Lightdesk owns strict versioned consumption, map editing and owner-preview presentation; Lux owns selection, transitions and resolved effects.
+
 ## Next work
 
 Physical console operation is a contribution to shared GP-H2; keep its plan/progress

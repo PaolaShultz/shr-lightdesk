@@ -1,5 +1,9 @@
 # Dated implementation evidence
 
+Opt-in LX05 music metadata is consumed read-only with validated source freshness,
+chord/key/Camelot, fifths movement and explicitly tentative section labels. Lux
+owns analysis; beat/downbeat remain unavailable. Shared software acceptance and qualification limits are recorded in [GP-MUSIC](../../gigpies/docs/archive/records/2026-10-11-gp-music.md).
+
 Task plans and current progress live only in [the owning plan](GIGPIES_IMPLEMENTATION.md).
 The dated records below preserve acceptance and failures for their original scope;
 they are not an active backlog. Later accepted evidence supersedes partial handoffs.
@@ -335,3 +339,27 @@ The separately accepted amendment/data is under `tests/fixtures/lx05-untimed`.
 Physical output, controllers/displays, GPU hardware and shared-load acceptance
 remain unverified. Historical media/exhaustive/long and hardware tests are outside
 this bounded software pass.
+
+### 2026-10-11: owner-backed scene consumer and authoring
+
+The LX06 opt-in scene boundary, native/terminal scene inspection, detached atomic
+map editing and captured nonmutating owner preview are implemented. Usage and
+limits live in [SCENE_MAP.md](SCENE_MAP.md); shared acceptance is recorded in
+the archived GP-SCENES card linked from the contributor plan.
+
+Software validation: 135 default and 136 native normal tests passed (five/six
+explicit opt-ins skipped). Eleven scene tests passed in both configurations;
+fmt, both all-target warning-denied Clippy checks and both releases passed.
+The full suites exercised unchanged production inputs before a mechanical test
+initializer style correction; focused scene tests and style gates passed afterward.
+The final exact producer corpus SHA256 is
+`cb01cc338731954efbc35db23c929e0883c4801fd75eff0c03cb8c3e89db47b7`.
+The final real CLI accepted the owner-generated 32-fixture/32-cue inventory through
+13 bounded pages, reporting Fresh and physical UNKNOWN. The linked integration record covers the completed 100-second synthetic source,
+recurrence, authoring, Hold and recovery episode. Hardware, native window/display, shared
+load, historical media, exhaustive and long opt-ins remain outside these gates.
+The final actual GP09 role-gated offscreen authoring smoke passed: three reviewed
+edits yielded map revision4 (driving mood dark, lift850, RGB120/40/280), and the
+nonmutating owner preview returned intensity850/red120 with Fresh/physical UNKNOWN.
+All owned children and private endpoints were cleaned; concise JSON/SVG evidence
+is retained locally under artifacts/gp-scenes/authoring-smoke.

@@ -412,6 +412,7 @@ impl ApplicationHandler for App {
                         self.action(Semantic::Action(Action::Page(Page::Health)))
                     }
                     Key::Named(NamedKey::F6) => self.action(Semantic::Grant),
+                    Key::Named(NamedKey::F7) => self.action(Semantic::Scenes),
                     Key::Named(NamedKey::Home) => self.action(Semantic::Bank(-1)),
                     Key::Named(NamedKey::End) => self.action(Semantic::Bank(1)),
                     Key::Named(NamedKey::ArrowRight) => {
@@ -487,6 +488,8 @@ impl ApplicationHandler for App {
                                     self.semantic_editing = true;
                                     self.action(Semantic::AutoGrant);
                                 }
+                                "s" => self.action(Semantic::SceneEdit),
+                                "v" => self.action(Semantic::ScenePreview),
                                 "x" => self.action(Semantic::AutoRevoke),
                                 "d" => self.action(Semantic::Action(Action::Deselect)),
                                 _ => {}
