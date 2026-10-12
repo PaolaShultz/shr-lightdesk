@@ -8,6 +8,7 @@ description = "GigPies lighting operator surface - offline foundation"
 publish = false
 
 [dependencies]
+shr-instrument-panel = { version = "=0.3.1", registry = "shr-panel" }
 serde = "=1.0.229"
 serde_json = "=1.0.151"
 libc = "=0.2.189"

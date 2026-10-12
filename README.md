@@ -216,3 +216,5 @@ Opt-in Lux LX06 authored scenes support F7/`page scenes`, S detached scene editi
 V owner previews, bounded full-map import/export and independent scoped intensity/RGB
 grants. See [Scene maps](docs/SCENE_MAP.md). The surface shows measured evidence,
 inferred changes and actual winning values separately; no local lighting evaluation.
+
+The shared [Ratatui instrument console](docs/TERMINAL.md) is available through the explicit terminal entry point; its acceptance and font contract are tracked in GP-PANEL.

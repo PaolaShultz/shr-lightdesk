@@ -21,6 +21,7 @@ gallery DIRECTORY           seven full-HD state-driven SVG drafts and index.html
                             explicit read-only real Lux; no commands or auto-connect
 lux-control --socket-path PRIVATE_PATH --show-id UUID --epoch DECIMAL [--script PATH]
                             explicit real writable Lux; grant then operator commands
+terminal --socket-path PRIVATE_PATH --show-id UUID --epoch DECIMAL (Ratatui)
 native --socket-path PRIVATE_PATH --show-id UUID --epoch DECIMAL (optional native feature)
 offscreen --socket-path PRIVATE_PATH --show-id UUID --epoch DECIMAL --script PATH --output DIRECTORY
                             real Lux actions and scene raster; no display/adapter opening
@@ -514,7 +515,7 @@ fn run() -> Result<(), String> {
             epoch_arg,
             epoch,
             rest @ ..,
-        ] if (command == "native" || command == "offscreen")
+        ] if (command == "native" || command == "terminal" || command == "offscreen")
             && socket_arg == "--socket-path"
             && show_arg == "--show-id"
             && epoch_arg == "--epoch" =>
@@ -536,6 +537,9 @@ fn run() -> Result<(), String> {
                     }
                     _ => return Err("offscreen requires --script PATH --output DIRECTORY".into()),
                 }
+            } else if command == "terminal" {
+                let role = shr_lightdesk::frontend::role_args(rest)?;
+                shr_lightdesk::terminal::run(path.into(), show.clone(), epoch, role)?;
             } else {
                 let role = shr_lightdesk::frontend::role_args(rest)?;
                 #[cfg(feature = "native")]

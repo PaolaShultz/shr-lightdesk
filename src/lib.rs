@@ -25,3 +25,5 @@ pub mod role_client;
 pub mod music;
 
 pub mod scenes;
+
+pub mod terminal;

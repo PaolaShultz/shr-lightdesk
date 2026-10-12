@@ -62,6 +62,14 @@ and MiniLab 3 references and ambiguous pad/key messages. FX supplies useful
 browse/edit/confirm/back, detached drafts, pickup and held-button recovery ideas.
 These are references, not proof of the second physical controller's identity.
 
+## Current shared Ratatui direction
+
+The physical instrument-panel presentation uses the shared Ratatui package owned
+by GigPies. [Terminal usage](TERMINAL.md) and the linked shared contract define
+font selection, input/review safety, readable fallback and verification limits.
+The historical winit/wgpu direction below describes the retained compatibility
+frontend; it does not authorize a return to an application pixel framebuffer.
+
 ## First implemented slice and code boundaries
 
 The first slice answers: can a human select a small rig, build and store a look,
